@@ -5,7 +5,7 @@ import numpy as np
 import datetime as dt
 import os,pickle,gc,re
 import dataApi.StockList
-
+eeeCec
 data_path = 'D:\Program\BasicData\\'
 
 # 函数1：股票代码
