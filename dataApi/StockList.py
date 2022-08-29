@@ -4,11 +4,10 @@ import pandas as pd
 import numpy as np
 import datetime as dt
 import os,pickle,gc,re
-import dataApi.StockList
-eeeCec
-data_path = 'D:\Program\BasicData\\'
-
-# 函数1：股票代码
+from dataApi.TradeDate import get_date_range, get_pre_trade_date, _check_input_date, get_recent_trade_date, trans_datetime2int, get_trade_date_interval
+from functools import reduce
+import cx_Oracle
+con = cx_Oracle.connect("windquery", "wind2010query", "10.2.89.132:1521/winddb", threaded=True)
 
 # 函数1.1：股票代码和wind代码的互换
 def trans_windcode2int(code):
@@ -52,12 +51,7 @@ def trans_int2windcode(code):
 
 
 
-import time
-import threading
-import pandas as pd
-import numpy as np
-import datetime as dt
-from functools import reduce
+
 
 def _handle_params(trading_codes=None, date_list=None, factor_list=None):
     """
@@ -127,82 +121,6 @@ def _handle_params(trading_codes=None, date_list=None, factor_list=None):
         params_dict['factor_list'] = [factor_list, fields]
 
     return params_dict
-
-def _update_log(status, factor_type, factor, write_type='update', info='', file='/data/group/800442/800319/junkData/updateLog.txt'):
-
-    time_stamp = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    string = status + ': ' + write_type + ' ' + factor_type + ' <' + factor + '> ' + time_stamp + ' ' + info + '\n'
-    with open(file, 'a+') as f:
-        f.write(string)
-    '''
-    if status != 'SUCCEED':
-        print(string)
-    '''
-
-def trans_windcode2int(code):
-
-    if isinstance(code, int) | isinstance(code, np.int64) | isinstance(code, np.int32) | isinstance(code, np.int):
-        return code
-    elif isinstance(code, float):
-        return int(code)
-    elif isinstance(code, str):
-        if code in ["000001.SH", "000016.SH", "000300.SH", "000905.SH", "000906.SH",
-                    "000852.SH", "399001.SZ", "399006.SZ", "399101.SZ", "399102.SZ"]:
-            return int('9' + code[:-3])
-        elif code.isdigit():
-            return int(code)
-        else:
-            return int(code[:-3])
-    else:
-        raise Exception('input code type error')
-
-def trans_int2windcode(code):
-
-    if isinstance(code, str):
-        return code
-    elif isinstance(code, (float, int, np.int)):
-        temp = str(int(code)).zfill(6)
-        if temp[0] == '9' and len(temp) == 7:  # 指数
-            if temp[1] == '3':
-                result = temp[1:] + '.SZ'
-            else:
-                result = temp[1:] + '.SH'
-        elif temp[0] == '0' or temp[0] == '3':
-            result = temp + '.SZ'
-        elif temp[0] == '6':
-            result = temp + '.SH'
-        else:
-            result = temp + 'SH'
-        return result
-    else:
-        raise Exception('input code type error')
-
-def _get_stock_list2(date):
-
-    thread = threading.currentThread()
-    thread_id = str(thread.ident)
-    # 毫秒级时间戳
-    time_stamp = str(int(round(time.time() * 1000)))
-    c_name = "conn_" + time_stamp + "_" + thread_id  # 链接名
-
-    _date = _check_input_date(date)
-    dateStr = ",".join(_date)
-
-    basic_sql = """select a.trade_dt as date, a.s_info_windcode as code
-                    from ashareeodprices a 
-                    where a.trade_dt in ({0}) and 
-                        (a.s_info_windcode like '0%.SZ' or
-                        (a.s_info_windcode like '3%.SZ' and a.s_info_windcode not like '399%.SZ') or
-                        a.s_info_windcode like '6%.SH')
-                    order by a.trade_dt, a.s_info_windcode"""
-
-    sql_use = basic_sql.format(dateStr)
-    data_mkt = dml2.getAll(c_name, sql_use)
-    df_mkt = pd.DataFrame(data_mkt[1:], columns=data_mkt[0])
-    df_mkt['date'] = df_mkt['date'].map(int)
-    df_mkt['code'] = df_mkt['code'].map(lambda x: int(x[:6]))
-    dml2.close(c_name)
-    return df_mkt
 
 def _get_stock_list(date):
 
@@ -386,7 +304,7 @@ def _store_stock_list(address='/data/group/800442/800319/junkData/daily'):
     df = df.pivot('date', 'code', 'true').fillna(False)
     df = df.convert_objects()
     df.to_hdf('%s/stock_list.h5' % address, 'stock_list', format='t')
-    _update_log('SUCCEED', 'daily', 'stock_list', 'store', 'time range %s~%s' % (date[0], date[-1]))
+
 
 def _store_bench_exdiv_weight(address='/data/group/800442/800319/junkData/daily'):
 

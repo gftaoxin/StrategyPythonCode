@@ -1,6 +1,7 @@
 import os,datetime
 import pickle
-
+from dataApi.TradeDate import *
+from dataApi.StockList import *
 import pandas as pd
 import numpy as np
 import cx_Oracle
@@ -54,7 +55,8 @@ def get_list_factor(save_path=data_path):
     trade_calendar_df.to_pickle(save_path+'trade_calendar.pkl')
     with open(save_path +'trade_date.pkl','wb') as f:
         pickle.dump(trade_date,f)  # 保存交易日历
-    # 2、存储股票代码
+
+    # 2、存储股票代码，即每日可交易个股
     code_table = 'AShareDescription'
     code_str = 'S_INFO_WINDCODE,S_INFO_CODE,S_INFO_NAME,S_INFO_LISTDATE,S_INFO_DELISTDATE'
     sql = r"select %s from wind.%s" % (code_str, code_table)
@@ -71,19 +73,15 @@ def get_list_factor(save_path=data_path):
     with open(save_path + 'code_list.pkl', 'wb') as f:
         pickle.dump(code_list, f)  # 保存交易日历
 
-get_list_factor(data_path)
-
-
-#sql = r"select S_INFO_WINDCODE,TRADE_DT,S_DQ_CLOSE,S_DQ_ADJCLOSE from wind.AShareEODPrices a where a.TRADE_DT > '%s' and  a.TRADE_DT < '%s'" % (start_date, end_date)
 
 # 注意：要把所有字符串日期，改为数字日期
-# 这部分要进行数据检查：比如自动更新先获取最近的日期，然后看本地是否有该文件；有该文件则重新获取start_date
-# 没有该文件让初始日期变成特定日期20130101
-
-def get_df_factor(save_data_dict,start_date = '20130101',save_path=data_path,resave = False):
+# 初始日期变成特定日期20130101
+def get_df_factor(save_data_dict,start_date = '20120101',save_path=data_path,resave = False):
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
-    # 1、获取数据都区范围
-    end_date = datetime.date.today().strftime("%Y%m%d")
+    end_date = datetime.date.today().strftime("%Y%m%d") # 1、获取数据都区范围
+    code_list = pd.read_pickle(save_path + 'code_list.pkl')
+    code_list = [trans_int2windcode(x) for x in code_list]
+
     # 2、确认路径是否存在，不存在创建路径
     os.makedirs(save_path) if os.path.exists(save_path) == False else print('存储路径已存在，继续运行')
     # 3、针对每一个数据，进行存储，存储格式为单因子格式，date,code,factor
@@ -98,72 +96,56 @@ def get_df_factor(save_data_dict,start_date = '20130101',save_path=data_path,res
             else:
                 old_data = pd.DataFrame()
             # （2）获取信息
-            sql = r"select %s from wind.%s a where a.TRADE_DT > '%s' and  a.TRADE_DT < '%s'" % \
-                  (data_str,table,start_date, end_date)
-            data_values = pd.read_sql(sql, con)
-            save_data = data_values.pivot_table(values=old_name, index='TRADE_DT', columns='S_INFO_WINDCODE')
-            # 将该输出到保存地址中
+            if int(start_date) < int(end_date):
+                sql = r"select %s from wind.%s a where a.TRADE_DT >= '%s' and  a.TRADE_DT <= '%s' " % \
+                      (data_str,table,start_date, end_date)
+                data_values = pd.read_sql(sql, con)
+                data_values = data_values[data_values['S_INFO_WINDCODE'].isin(code_list)]
+                save_data = data_values.pivot_table(values=old_name, index='TRADE_DT', columns='S_INFO_WINDCODE')
+                # 转换数据格式
+                save_data.index = save_data.index.astype(int)
+                save_data.columns = pd.Series(save_data.columns).apply(lambda x:trans_windcode2int(x))
 
-
-
-            # 开始进行储存
-
+                save_data = pd.concat([old_data,save_data])
+                save_data = save_data[~save_data.index.duplicated()]
+                # 将该输出到保存地址中
                 save_data.to_pickle(save_path +data_name +'.pkl')
+                stock_list = ['300750.SZ', '000001.SZ']
+                # 想办法把stock_list转为下面格式的字符串
+                stock_list_str = "('300750.SZ','000001.SZ')"
             else:
+                print('今日数据已更新')
 
-                pd.concat([old_data,save_data],)
-
-
-    # 2、股票日行情信息
-
-    if save == True: # 进行全样本存储
-        pre_close.to_pickle(data_path +'pre_close.pkl')
-
-    else: # 进行样本添加
-        pre_close = pd.read_pickle()
-
-    gc.collect()
-
-save_df_dict = {
-    'AShareEODPrices': {
-        'open':'S_DQ_PRECLOSE', 'high':'S_DQ_HIGH', 'low':'S_DQ_LOW', 'close':'S_DQ_CLOSE',
-        'pre_close':'S_DQ_PRECLOSE', 'chg':'S_DQ_CHANGE', 'vol':'S_DQ_VOLUME', 'amt':'S_DQ_AMOUNT',
-        'adj_close':'S_DQ_ADJCLOSE', 'adj_open':'S_DQ_ADJOPEN', 'adj_high':'S_DQ_ADJHIGH', 'adj_low':'S_DQ_ADJLOW',
-        'adj_factor':'S_DQ_ADJFACTOR', 'vwap':'S_DQ_AVGPRICE',
-        'limit_up':'S_DQ_LIMIT','limit_down':'S_DQ_STOPPING'
-    },
-
-    'AIndexEODPrices':{'open':'S_DQ_PRECLOSE', 'high':'S_DQ_HIGH', 'low':'S_DQ_LOW', 'close':'S_DQ_CLOSE',
-                       'pre_close':'S_DQ_PRECLOSE','pct_chg':'S_DQ_PCTCHANGE','vol':'S_DQ_VOLUME', 'amt':'S_DQ_AMOUNT'}
-
-}
+            gc.collect()
+            print(data_name+'存储完毕')
 
 
-save_list_dict = {
-    'AShareCalendar': {'trade_date': 'TRADE_DAYS'},
-    'AShareDescription':{'S_INFO_WINDCODE','S_INFO_CODE','S_INFO_NAME','S_INFO_LISTDATE','S_INFO_DELISTDATE'}
-}
+def get_other_factor():
+    # 1、保存清洗后的股票池
+    pass
 
 
+if __name__ == '__main__':
+    if datetime.date.today().day >=28: # 月末更新一下
+        get_list_factor(data_path)
 
-# data = pd.concat([A_close_data, HK_close_data, NQ_close_data])
+    save_df_dict = {
+        'AShareEODPrices': {
+            'open': 'S_DQ_PRECLOSE', 'high': 'S_DQ_HIGH', 'low': 'S_DQ_LOW', 'close': 'S_DQ_CLOSE',
+            'pre_close': 'S_DQ_PRECLOSE', 'chg': 'S_DQ_CHANGE', 'vol': 'S_DQ_VOLUME', 'amt': 'S_DQ_AMOUNT',
+            'adj_close': 'S_DQ_ADJCLOSE', 'adj_open': 'S_DQ_ADJOPEN', 'adj_high': 'S_DQ_ADJHIGH',
+            'adj_low': 'S_DQ_ADJLOW',
+            'adj_factor': 'S_DQ_ADJFACTOR', 'vwap': 'S_DQ_AVGPRICE',
+            'limit_up': 'S_DQ_LIMIT', 'limit_down': 'S_DQ_STOPPING'
+        },
 
-# data['TRADE_DT'] = pd.to_datetime([str(x)[:4] + "-" + str(x)[4:6] + "-" + str(x)[6:8] for x in data['TRADE_DT']])
-# data.columns = ['stock_code', 'date', 'close', 'adj_close']
+        'AIndexEODPrices': {'open': 'S_DQ_PRECLOSE', 'high': 'S_DQ_HIGH', 'low': 'S_DQ_LOW', 'close': 'S_DQ_CLOSE',
+                            'pre_close': 'S_DQ_PRECLOSE', 'pct_chg': 'S_DQ_PCTCHANGE', 'vol': 'S_DQ_VOLUME',
+                            'amt': 'S_DQ_AMOUNT'}
 
+    }
+    now_time = time.time()
+    get_df_factor(save_df_dict)
+    print(str(round((time.time() - now_time)/60,3))+'分钟')
 
-
-
-# 1、股票日频信息
-
-
-# 2、
-
-
-
-
-# 2、指数日频信息
-
-
-
-
+    get_other_factor()
