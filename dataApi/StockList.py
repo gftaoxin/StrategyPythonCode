@@ -7,51 +7,8 @@ import os,pickle,gc,re
 from dataApi.TradeDate import get_date_range, get_pre_trade_date, _check_input_date, get_recent_trade_date, trans_datetime2int, get_trade_date_interval
 from functools import reduce
 import cx_Oracle
+address = 'D:\Program\BasicData\\'
 con = cx_Oracle.connect("windquery", "wind2010query", "10.2.89.132:1521/winddb", threaded=True)
-
-# 函数1.1：股票代码和wind代码的互换
-def trans_windcode2int(code):
-
-    if isinstance(code, int) | isinstance(code, np.int64) | isinstance(code, np.int32) | isinstance(code, np.int):
-        return code
-    elif isinstance(code, float):
-        return int(code)
-    elif isinstance(code, str):
-        if code in ["000001.SH", "000016.SH", "000300.SH", "000905.SH", "000906.SH",
-                    "000852.SH", "399001.SZ", "399006.SZ", "399101.SZ", "399102.SZ"]:
-            return int('9' + code[:-3])
-        elif code.isdigit():
-            return int(code)
-        else:
-            return int(code[:-3])
-    else:
-        raise Exception('input code type error')
-
-def trans_int2windcode(code):
-
-    if isinstance(code, str):
-        return code
-    elif isinstance(code, (float, int, np.int)):
-        temp = str(int(code)).zfill(6)
-        if temp[0] == '9' and len(temp) == 7:  # 指数
-            if temp[1] == '3':
-                result = temp[1:] + '.SZ'
-            else:
-                result = temp[1:] + '.SH'
-        elif temp[0] == '0' or temp[0] == '3':
-            result = temp + '.SZ'
-        elif temp[0] == '6':
-            result = temp + '.SH'
-        else:
-            result = temp + 'SH'
-        return result
-    else:
-        raise Exception('input code type error')
-
-
-
-
-
 
 def _handle_params(trading_codes=None, date_list=None, factor_list=None):
     """
@@ -122,143 +79,60 @@ def _handle_params(trading_codes=None, date_list=None, factor_list=None):
 
     return params_dict
 
-def _get_stock_list(date):
+# 函数1.1：股票代码和wind代码的互换
+def trans_windcode2int(code):
 
-    _date = _check_input_date(date)
-    df = fd.get_factor_value('Basic_factor', mddate=_date, factor_names=['pre_close']).iloc[:, 0].unstack()
-    df.index = df.index.map(int)
-    df.columns = df.columns.map(trans_windcode2int)
-    df = df.stack().reset_index()
-    df.columns = ['date', 'code', 'true']
-    df = df[['date', 'code']]
-    return df
+    if isinstance(code, int) | isinstance(code, np.int64) | isinstance(code, np.int32) | isinstance(code, np.int):
+        return code
+    elif isinstance(code, float):
+        return int(code)
+    elif isinstance(code, str):
+        if code in ["000001.SH", "000016.SH", "000300.SH", "000905.SH", "000906.SH",
+                    "000852.SH", "399001.SZ", "399006.SZ", "399101.SZ", "399102.SZ"]:
+            return int('9' + code[:-3])
+        elif code.isdigit():
+            return int(code)
+        else:
+            return int(code[:-3])
+    else:
+        raise Exception('input code type error')
 
-def get_stock_list(date=None, address='/data/group/800442/800319/junkData/daily'):
+def trans_int2windcode(code):
 
+    if isinstance(code, str):
+        return code
+    elif isinstance(code, (float, int, np.int)):
+        temp = str(int(code)).zfill(6)
+        if temp[0] == '9' and len(temp) == 7:  # 指数
+            if temp[1] == '3':
+                result = temp[1:] + '.SZ'
+            else:
+                result = temp[1:] + '.SH'
+        elif temp[0] == '0' or temp[0] == '3':
+            result = temp + '.SZ'
+        elif temp[0] == '6':
+            result = temp + '.SH'
+        else:
+            result = temp + 'SH'
+        return result
+    else:
+        raise Exception('input code type error')
+
+# 函数2.1：获取某一日的股票列表
+def get_stock_list(date=None,address = address):
     if date != None:
         date = trans_datetime2int(date)
     date = get_recent_trade_date(date)
-    row = get_trade_date_interval(date)
-    stock_list = pd.read_hdf(address + '/stock_list.h5', 'stock_list', start=row, stop=row+1).iloc[0]
-    stock_list = stock_list[stock_list].index.to_list()
+    stock_list = pd.read_pickle(address + '/stock_list.pkl').loc[date]
+    stock_list[stock_list].index.to_list()
+
+    #row = get_trade_date_interval(date)
+    #stock_list = pd.read_hdf(address + '/stock_list.h5', 'stock_list', start=row, stop=row+1).iloc[0]
+    #stock_list = stock_list[stock_list].index.to_list()
+
     return stock_list
 
-def get_all_stock_ever_appear(date):
 
-    stock_list = fd.hset('MARKET', date, 'ALLA_HIS')
-    stock_list = sorted(stock_list['stock'].map(trans_windcode2int).to_list())
-    return stock_list
-
-def _update_bench_exdiv_weight2(date, bench):
-
-    thread = threading.currentThread()
-    thread_id = str(thread.ident)
-    time_stamp = str(int(round(time.time() * 1000)))
-    c_name = "conn_" + time_stamp + "_" + thread_id  # 链接名
-
-    _date = [get_pre_trade_date(x, -1) for x in date]
-    _date = _check_input_date(_date)
-    dateStr = ",".join(_date)
-
-    icode_dict = {'SZ50': '000016', 'HS300': '000300', 'ZZ500': '000905'}
-    _code = icode_dict[bench]
-    sql3 = """
-                select a.effectivedate as date, 
-                (case b.exchangecode when '101' then b.tradingcode
-                    when '105' then b.tradingcode end) as code,
-                round(a.weight, 4) / 100 as weight
-                from news_csinextdayweight a left join inx_component b on 
-                a.constituentcode = b.tradingcode and a.exchangecode = b.exchangecode
-                where a.effectivedate in ({0}) and a.indexcode = '{1}' and a.isvalid = 1
-                and indate <= a.effectivedate
-                and (outdate>=a.effectivedate or isnull(outdate)) and icode='{1}'
-                """.format(dateStr, _code)
-    df = dml2.getAllByPandas(c_name, sql3)
-    dml2.close(c_name)
-    df['date'] = df['date'].map(lambda x: int(x.year * 10000 + x.month * 100 + x.day)).map(get_pre_trade_date)
-    df['code'] = df['code'].map(int)
-    '''
-    if bench == 'HS300':
-        try:
-            df = fd.get_factor_value(
-                "WIND_AIndexHS300CloseWeight",
-                trade_dt=_date,
-                factors=['trade_dt', 's_con_windcode', 'i_weight']
-            )
-        except KeyError:
-            pass
-        else:
-            df.columns = ['date', 'code', 'weight']
-            df['code'] = df['code'].map(trans_windcode2int)
-    '''
-    return df
-
-def _update_bench_exdiv_weight(date, bench):
-
-    _date = [get_pre_trade_date(x, -1) for x in date]
-    df = pd.concat([fd.get_index_weight_next_day_csi(_date[x], bench)[['constituentcode', 'weight']].set_index(
-        'constituentcode')['weight'].rename(date[x]) for x in range(len(date))], axis=1) / 100
-    df.index = df.index.map(int)
-    df = df.T.stack().reset_index()
-    df.columns = ['date', 'code', 'weight']
-    return df
-
-def _get_bench_exdiv_weight2(date, bench):
-
-    thread = threading.currentThread()
-    thread_id = str(thread.ident)
-    time_stamp = str(int(round(time.time() * 1000)))
-    c_name = "conn_" + time_stamp + "_" + thread_id  # 链接名
-
-    _date = [get_pre_trade_date(x, -1) for x in date]
-    #_date = _check_input_date(_date)
-    start_date = _date[0]
-    end_date = _date[-1]
-
-    icode_dict = {'SZ50': '000016', 'HS300': '000300', 'ZZ500': '000905'}
-    _code = icode_dict[bench]
-    sql3 = """
-                select a.effectivedate as date, 
-                (case b.exchangecode when '101' then b.tradingcode
-                    when '105' then b.tradingcode end) as code,
-                round(a.weight, 4) / 100 as weight
-                from news_csinextdayweight a left join inx_component b on 
-                a.constituentcode = b.tradingcode and a.exchangecode = b.exchangecode
-                where {0} <= a.effectivedate <= {1} and a.indexcode = '{2}' and a.isvalid = 1
-                and indate <= a.effectivedate
-                and (outdate>=a.effectivedate or isnull(outdate)) and icode='{2}'
-                """.format(start_date, end_date, _code)
-    df = dml2.getAllByPandas(c_name, sql3)
-    dml2.close(c_name)
-    df = df.pivot('date', 'code', 'weight')
-    df.index = date[:len(df)]
-    df.columns = df.columns.map(int)
-    df = df.convert_objects()
-    '''
-    if bench == 'HS300':
-        try:
-            df = fd.get_factor_value(
-                "WIND_AIndexHS300CloseWeight",
-                trade_dt=_date,
-                factors=['trade_dt', 's_con_windcode', 'i_weight']
-            )
-        except KeyError:
-            pass
-        else:
-            df.columns = ['date', 'code', 'weight']
-            df['code'] = df['code'].map(trans_windcode2int)
-    '''
-    return df
-
-def _get_bench_exdiv_weight(date, bench):
-
-    date = get_date_range(date[0], date[-1])
-    _date = [get_pre_trade_date(x, -1) for x in date]
-    df = pd.concat([fd.get_index_weight_next_day_csi(_date[x], bench)[['constituentcode', 'weight']].set_index(
-        'constituentcode')['weight'].rename(date[x]) for x in range(len(date))], axis=1) / 100
-    df.index = df.index.map(int)
-    df = df.T.convert_objects()
-    return df
 
 def _get_ind_con(date, code, ind_type='CITICS', level=1):
 
@@ -279,45 +153,6 @@ def _get_ind_con(date, code, ind_type='CITICS', level=1):
         df['ind'] = df['ind'].map(int)
     return df
 
-def judge_ST():
-
-    ST = fd.get_factor_value("WIND_AShareST", factors=['S_INFO_WINDCODE', 'ENTRY_DT', 'REMOVE_DT', 'S_TYPE_ST', 'ANN_DT'])
-    ST.columns = ['code', 'dateIn', 'dateOut', 'type', 'dateAnn']
-    ST = ST[ST['code'].map(lambda x: x[0]).isin(['0','3','6'])]
-    ST = ST[ST['type'] == 'S']
-    ST['code'] = ST['code'].map(lambda x: int(x[:6]))
-    ST = ST.sort_values('dateAnn')
-
-    st = ST[['code', 'dateIn', 'dateOut']].copy()
-    st['value'] = 1
-    stEntry = st.pivot('dateIn', 'code', 'value')
-    stRemove = st[['dateOut', 'code', 'value']].dropna().drop_duplicates().pivot('dateOut', 'code', 'value')
-    st = stEntry.sub(stRemove, fill_value=0).replace(0, np.nan).ffill() > 0.5
-    st.index = st.index.map(int)
-    return st
-
-def _store_stock_list(address='/data/group/800442/800319/junkData/daily'):
-
-    date = get_date_range(20100101)
-    df = _get_stock_list(date)
-    df['true'] = True
-    df = df.pivot('date', 'code', 'true').fillna(False)
-    df = df.convert_objects()
-    df.to_hdf('%s/stock_list.h5' % address, 'stock_list', format='t')
-
-
-def _store_bench_exdiv_weight(address='/data/group/800442/800319/junkData/daily'):
-
-    date = get_date_range(20100101)
-
-    _get_bench_exdiv_weight(date, 'HS300').to_hdf('%s/HS300_exdiv_weight.h5' % address, 'HS300_exdiv_weight', format='t')
-    _get_bench_exdiv_weight(date, 'ZZ500').to_hdf('%s/ZZ500_exdiv_weight.h5' % address, 'ZZ500_exdiv_weight', format='t')
-    _get_bench_exdiv_weight(date, 'SZ50').to_hdf('%s/SZ50_exdiv_weight.h5' % address, 'SZ50_exdiv_weight', format='t')
-
-    _update_log('SUCCEED', 'daily', 'HS300_exdiv_weight', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'ZZ500_exdiv_weight', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'SZ50_exdiv_weight', 'store', 'time range %s~%s' % (date[0], date[-1]))
-
 def _store_ind_con(address='/data/group/800442/800319/junkData/daily'):
 
     date = get_date_range(20100101)
@@ -335,61 +170,6 @@ def _store_ind_con(address='/data/group/800442/800319/junkData/daily'):
     df_sw1.to_hdf('%s/SW1.h5' % address, 'SW1', format='t')
     df_sw2.to_hdf('%s/SW2.h5' % address, 'SW2', format='t')
     df_sw3.to_hdf('%s/SW3.h5' % address, 'SW3', format='t')
-
-    _update_log('SUCCEED', 'daily', 'CITICS1', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'CITICS2', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'CITICS3', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'SW1', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'SW2', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'SW3', 'store', 'time range %s~%s' % (date[0], date[-1]))
-
-def _store_price_get_limit(address='/data/group/800442/800319/junkData/daily'):
-
-    date = get_date_range(20100101)
-    _date = _check_input_date(date)
-    maxupordown = fd.get_factor_value('Basic_factor', mddate=_date, factor_names=['maxupordown']).iloc[:, 0].unstack()
-    maxupordown.index = maxupordown.index.map(int)
-    maxupordown.columns = maxupordown.columns.map(trans_windcode2int)
-    limit_up = maxupordown > 0.5
-    limit_down = maxupordown < -0.5
-    stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list').reindex(date)
-    limit_up = limit_up.reindex_like(stock_list) == 1
-    limit_down = limit_down.reindex_like(stock_list) == 1
-    limit_up = limit_up.convert_objects()
-    limit_down = limit_down.convert_objects()
-    limit_up.to_hdf('%s/limit_up.h5' % address, 'limit_up', format='t')
-    limit_down.to_hdf('%s/limit_down.h5' % address, 'limit_down', format='t')
-    _update_log('SUCCEED', 'daily', 'limit_up', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'limit_down', 'store', 'time range %s~%s' % (date[0], date[-1]))
-
-def _store_ST(address='/data/group/800442/800319/junkData/daily'):
-
-    date = get_date_range(20090930)
-    ST = judge_ST().reindex(date).ffill()
-    stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list')
-    ST = ST.reindex_like(stock_list) == 1
-    ST = ST.convert_objects()
-    ST.to_hdf('%s/ST.h5' % address, 'ST', format='t')
-    _update_log('SUCCEED', 'daily', 'ST', 'store', 'time range %s~%s' % (date[0], date[-1]))
-
-def _store_live_days_and_pause(address='/data/group/800442/800319/junkData/daily'):
-
-    date = get_date_range(20090101)
-    _date = _check_input_date(date)
-    amt = fd.get_factor_value('Basic_factor', mddate=_date, factor_names=['amt']).iloc[:, 0].unstack()
-    amt.index = amt.index.map(int)
-    amt.columns = amt.columns.map(trans_windcode2int)
-    pause = amt.fillna(0) <= 1
-    live_days = (~pause).cumsum()
-    stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list').reindex(date).loc[20100104:]
-    live_days = live_days.reindex_like(stock_list).fillna(0)
-    pause = pause.reindex_like(stock_list) == 1
-    live_days = live_days.convert_objects()
-    pause = pause.convert_objects()
-    live_days.to_hdf('%s/live_days.h5' % address, 'live_days', format='t')
-    pause.to_hdf('%s/pause.h5' % address, 'pause', format='t')
-    _update_log('SUCCEED', 'daily', 'pause', 'store', 'time range %s~%s' % (date[0], date[-1]))
-    _update_log('SUCCEED', 'daily', 'live_days', 'store', 'time range %s~%s' % (date[0], date[-1]))
 
 def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause=True, least_recover_days=1,
                      no_pause_limit=0.5, no_pause_stats_days=120, no_limit_up=False, no_limit_down=False,
