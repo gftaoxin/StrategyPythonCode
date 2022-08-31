@@ -6,9 +6,9 @@ import datetime as dt
 import os,pickle,gc,re
 from dataApi.TradeDate import get_date_range, get_pre_trade_date, _check_input_date, get_recent_trade_date, trans_datetime2int, get_trade_date_interval
 from functools import reduce
-import cx_Oracle
-address = 'D:\Program\BasicData\\'
-con = cx_Oracle.connect("windquery", "wind2010query", "10.2.89.132:1521/winddb", threaded=True)
+base_address = 'D:/Program/BasicData/'
+stock_address = base_address + 'stock/'
+bench_address = base_address + 'bench/'
 
 def _handle_params(trading_codes=None, date_list=None, factor_list=None):
     """
@@ -119,7 +119,11 @@ def trans_int2windcode(code):
         raise Exception('input code type error')
 
 # 函数2.1：获取某一日的股票列表
-def get_stock_list(date=None,address = address):
+def get_code_list(address = stock_address):
+    code_list = pd.read_pickle(address + 'code_list.pkl')
+    return code_list
+
+def get_stock_list(date=None,address = stock_address):
     if date != None:
         date = trans_datetime2int(date)
     date = get_recent_trade_date(date)
@@ -132,55 +136,34 @@ def get_stock_list(date=None,address = address):
 
     return stock_list
 
+# 函数3：获取申万和中信行业代码对应的名称
+def get_ind_con(ind_type='sw_new',level=1):
+    # 输入：sw_old,sw_new,CITICS
+    # 第一步：获取申万和中信对应的指数代码，指数名称
+    level_dict = {1: ['一级行业代码', '一级行业名称'],
+                  2: ['二级行业代码', '二级行业名称'],
+                  3: ['三级行业代码', '三级行业名称']}
+    ind_name = pd.read_excel(base_address + '行业分类.xlsx',sheet_name=ind_type)
+    if type(level) == int:
+        dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+    if type(level) == list:
+        df = pd.Series()
+        for l in level:
+            df = pd.concat([df,ind_name[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].drop_duplicates()])
+        dict_data = df.to_dict()
+    return dict_data
 
-
-def _get_ind_con(date, code, ind_type='CITICS', level=1):
-
-    _date = _check_input_date(date)
-
-    if not isinstance(code, list):
-        _code = [code]
-    else:
-        _code = code
-    _code = [trans_int2windcode(x) for x in _code]
-
-    df = fd.hsi(_code, _date, ind_type, level)
-    df.columns = ['date', 'code', 'ind']
-    df['date'] = df['date'].map(int)
-    df['code'] = df['code'].map(lambda x: int(x[:6]))
-
-    if ind_type == 'SW':
-        df['ind'] = df['ind'].map(int)
-    return df
-
-def _store_ind_con(address='/data/group/800442/800319/junkData/daily'):
-
-    date = get_date_range(20100101)
-    code = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list', start=-1).columns.to_list()
-    df_citics1 = _get_ind_con(date, code, ind_type='CITICS', level=1).pivot('date', 'code', 'ind').convert_objects()
-    df_citics2 = _get_ind_con(date, code, ind_type='CITICS', level=2).pivot('date', 'code', 'ind').convert_objects()
-    df_citics3 = _get_ind_con(date, code, ind_type='CITICS', level=3).pivot('date', 'code', 'ind').convert_objects()
-    df_sw1 = _get_ind_con(date, code, ind_type='SW', level=1).pivot('date', 'code', 'ind').convert_objects()
-    df_sw2 = _get_ind_con(date, code, ind_type='SW', level=2).pivot('date', 'code', 'ind').convert_objects()
-    df_sw3 = _get_ind_con(date, code, ind_type='SW', level=3).pivot('date', 'code', 'ind').convert_objects()
-
-    df_citics1.to_hdf('%s/CITICS1.h5' % address, 'CITICS1', format='t')
-    df_citics2.to_hdf('%s/CITICS2.h5' % address, 'CITICS2', format='t')
-    df_citics3.to_hdf('%s/CITICS3.h5' % address, 'CITICS3', format='t')
-    df_sw1.to_hdf('%s/SW1.h5' % address, 'SW1', format='t')
-    df_sw2.to_hdf('%s/SW2.h5' % address, 'SW2', format='t')
-    df_sw3.to_hdf('%s/SW3.h5' % address, 'SW3', format='t')
 
 def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause=True, least_recover_days=1,
                      no_pause_limit=0.5, no_pause_stats_days=120, no_limit_up=False, no_limit_down=False,
                      other_limit=None, start_date=None, end_date=None, trade_mode=False,
-                     address='/data/group/800442/800319/junkData/daily'):
+                     address=stock_address):
 
     today = get_recent_trade_date(dividing_point=8.8 if trade_mode else 17.3)
 
     requires = {}
     if stock_list == 'ALL':
-        stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list')
+        stock_list = pd.read_pickle('%s/stock_list.h5' % address)
     elif stock_list == 'COMMON':
         stock_list = pd.read_hdf('%s/common_stock_list.h5' % address, 'common_stock_list')
     elif stock_list in ('HS300', 'ZZ500', 'ZZ1000', 'SZ50'):
