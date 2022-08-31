@@ -2,9 +2,7 @@
 import datetime as dt
 import numpy as np
 import pandas as pd
-base_address = 'D:/ABasicData/'
-stock_address = base_address + 'stock/'
-bench_address = base_address + 'bench/'
+from BasicData.local_path import *
 
 trade_ticks = [
 92500, 93003, 93006, 93009, 93012, 93015, 93018, 93021, 93024, 93027, 93030, 93033, 93036, 93039, 93042,

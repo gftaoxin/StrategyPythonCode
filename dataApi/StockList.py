@@ -6,9 +6,7 @@ import datetime as dt
 import os,pickle,gc,re
 from dataApi.TradeDate import get_date_range, get_pre_trade_date, _check_input_date, get_recent_trade_date, trans_datetime2int, get_trade_date_interval
 from functools import reduce
-base_address = 'D:/ABasicData/'
-stock_address = base_address + 'stock/'
-bench_address = base_address + 'bench/'
+from BasicData.local_path import *
 
 def _handle_params(trading_codes=None, date_list=None, factor_list=None):
     """

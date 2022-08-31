@@ -4,9 +4,7 @@ import pandas as pd
 import numpy as np
 import cx_Oracle
 import gc,re
-base_address = 'D:/ABasicData/'
-stock_address = base_address + 'stock/'
-bench_address = base_address + 'bench/'
+from BasicData.local_path import *
 
 con = cx_Oracle.connect("windquery", "wind2010query", "10.2.89.132:1521/winddb", threaded=True) # 写入信号
 
