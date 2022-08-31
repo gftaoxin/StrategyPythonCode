@@ -2,7 +2,9 @@
 import datetime as dt
 import numpy as np
 import pandas as pd
-data_path = 'D:\Program\BasicData\\'
+base_address = 'D:/ABasicData/'
+stock_address = base_address + 'stock/'
+bench_address = base_address + 'bench/'
 
 trade_ticks = [
 92500, 93003, 93006, 93009, 93012, 93015, 93018, 93021, 93024, 93027, 93030, 93033, 93036, 93039, 93042,
@@ -345,8 +347,8 @@ trade_minutes = [
 1445, 1446, 1447, 1448, 1449, 1450, 1451, 1452, 1453, 1454, 1455, 1456, 1457, 1458, 1459,
 1500]
 
-trade_calendar = pd.read_pickle(data_path + 'trade_calendar.pkl')
-trade_dates = pd.read_pickle(data_path + 'trade_date.pkl')
+trade_calendar = pd.read_pickle(stock_address + 'trade_calendar.pkl')
+trade_dates = pd.read_pickle(stock_address + 'trade_date.pkl')
 trade_weeks = trade_calendar[trade_calendar['WeekEnd']==1].index.to_list()
 trade_months = trade_calendar[trade_calendar['MonthEnd']==1].index.to_list()
 trade_quarters = trade_calendar[trade_calendar['QuarterEnd']==1].index.to_list()

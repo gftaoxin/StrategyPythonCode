@@ -1,12 +1,10 @@
 import os,datetime
 import pickle
-from dataApi.TradeDate import _check_input_date
-from dataApi.StockList import *
 import pandas as pd
 import numpy as np
 import cx_Oracle
 import gc,re
-base_address = 'D:/Program/BasicData/'
+base_address = 'D:/ABasicData/'
 stock_address = base_address + 'stock/'
 bench_address = base_address + 'bench/'
 
@@ -422,8 +420,10 @@ def get_other_factor(address):
 
 if __name__ == '__main__':
     if datetime.date.today().day >=28: # 月末更新一下
-        get_list_factor(base_address)
+        get_list_factor(stock_address)
 
+    from dataApi.TradeDate import _check_input_date
+    from dataApi.StockList import *
     save_code_dict = {
         'AShareEODPrices': {
             'open': 'S_DQ_OPEN', 'high': 'S_DQ_HIGH', 'low': 'S_DQ_LOW', 'close': 'S_DQ_CLOSE',
