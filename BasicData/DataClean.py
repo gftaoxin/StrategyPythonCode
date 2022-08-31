@@ -71,7 +71,7 @@ def get_list_factor(save_path = stock_address):
     with open(save_path + 'code_list.pkl', 'wb') as f:
         pickle.dump(code_list, f)  # 保存交易日历
 # 2、储存个股基础数据：要把所有字符串日期，改为数字日期，初始日期变成特定日期20120101
-def get_stock_factor(save_data_dict,save_path, start_date = '20120101',resave = False):
+def get_stock_factor(save_data_dict,save_path, start = '20120101',resave = False):
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date()) # 1、获取数据都区范围
     code_list = pd.read_pickle(save_path + 'code_list.pkl')
@@ -90,6 +90,7 @@ def get_stock_factor(save_data_dict,save_path, start_date = '20120101',resave = 
                 start_date = str(old_data.index[-1])
             else:
                 old_data = pd.DataFrame()
+                start_date = start
             # （2）获取信息
             if int(start_date) < int(end_date):
                 sql = r"select %s from wind.%s a where a.TRADE_DT >= '%s' and  a.TRADE_DT <= '%s' " % \
@@ -105,17 +106,17 @@ def get_stock_factor(save_data_dict,save_path, start_date = '20120101',resave = 
                 save_data = pd.concat([old_data,save_data])
                 save_data = save_data[~save_data.index.duplicated('last')]
 
-                if save_data.index[0] > '20120104':
+                if save_data.index[0] > 20120104:
                     print(data_name+'数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data.to_pickle(save_path +data_name +'.pkl')
+                print(data_name + '存储完毕')
             else:
-                print('今日数据已更新')
+                print(data_name + '今日数据已更新')
 
             gc.collect()
-            print(data_name+'存储完毕')
 # 3、储存指数基础数据：要把所有字符串日期，改为数字日期，初始日期变成特定日期20120101
-def get_index_factor(save_data_dict,save_path, start_date='20120101', resave=False):
+def get_index_factor(save_data_dict,save_path, start='20120101', resave=False):
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date())  # 1、获取数据都区范围
     index_dict = {'000001.SH': 'szzs', '399001.SZ': 'szcz', '399102.SZ': 'cybz', '399101.SZ': 'zxbz',
@@ -136,6 +137,7 @@ def get_index_factor(save_data_dict,save_path, start_date='20120101', resave=Fal
                 start_date = str(old_data.index[-1])
             else:
                 old_data = pd.DataFrame()
+                start_date = start
             # （2）获取信息
             if int(start_date) < int(end_date):
                 # 获取数据组1：wind全A数据'881001.WI'，全A等权指数'8841388.WI'
@@ -165,13 +167,13 @@ def get_index_factor(save_data_dict,save_path, start_date='20120101', resave=Fal
                     print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data.to_pickle(save_path + data_name + '.pkl')
+                print(data_name + '存储完毕')
             else:
-                print('今日数据已更新')
+                print(data_name +'今日数据已更新')
 
             gc.collect()
-            print(data_name + '存储完毕')
 # 4、存储行业基础数据：要把所有字符串日期，改为数字日期，初始日期变成特定日期20120101
-def get_ind_factor(save_data_dict,save_path, start_date='20120101', resave=False):
+def get_ind_factor(save_data_dict,save_path, start='20120101', resave=False):
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date())  # 1、获取数据都区范围
     # 2、确认路径是否存在，不存在创建路径
@@ -195,6 +197,7 @@ def get_ind_factor(save_data_dict,save_path, start_date='20120101', resave=False
                 start_date = str(old_data.index[-1])
             else:
                 old_data = pd.DataFrame()
+                start_date = start
             # （2）获取信息
             if int(start_date) < int(end_date):
                 sql = r"select %s from wind.%s a where a.TRADE_DT >= '%s' and  a.TRADE_DT <= '%s' " % \
@@ -212,12 +215,11 @@ def get_ind_factor(save_data_dict,save_path, start_date='20120101', resave=False
                     print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data.to_pickle(save_path + data_name + '.pkl')
+                print(data_name + '存储完毕')
             else:
-                print('今日数据已更新')
+                print(data_name +'今日数据已更新')
 
             gc.collect()
-            print(data_name + '存储完毕')
-
 
 # (1)获取指数成分股信息
 def get_bench_weight(save_path,start_date = '20120101',resave = False):
@@ -231,9 +233,9 @@ def get_bench_weight(save_path,start_date = '20120101',resave = False):
         index_value = ['TRADE_DT', 'S_CON_WINDCODE', 'I_WEIGHT'] if index_name == 'HS300' else \
             ['TRADE_DT', 'S_CON_WINDCODE', 'WEIGHT']
         index_value_str = re.sub('[\'\[\]]', '', str(index_value))
-        if (resave == False) & (os.path.exists(save_path + 'IndexWeight/weighted_'+index_name+'.pkl') == True):
+        if (resave == False) & (os.path.exists(save_path + 'weighted_'+index_name+'.pkl') == True):
             resave== True
-            old_data = pd.read_pickle(save_path + 'IndexWeight/weighted_'+index_name+'.pkl')
+            old_data = pd.read_pickle(save_path + 'weighted_'+index_name+'.pkl')
             start_date = str(old_data.index[-1])
         else:
             old_data = pd.DataFrame()
@@ -254,10 +256,10 @@ def get_bench_weight(save_path,start_date = '20120101',resave = False):
             save_data = pd.concat([old_data, save_data])
             save_data = save_data[~save_data.index.duplicated('last')]
 
-            if save_data.index[0] > '20120104':
+            if save_data.index[0] > 20120104:
                 print(index_name + '权重数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
             # 将该输出到保存地址中
-            save_data.to_pickle(save_path + 'IndexWeight/weighted_'+index_name+'.pkl')
+            save_data.to_pickle(save_path + 'weighted_'+index_name+'.pkl')
 # (2)获取行业成分股信息
 def get_ind_weight(save_path):
     date_list, code_list = get_date_range(20120101), get_code_list()
@@ -316,8 +318,16 @@ def get_ind_weight(save_path):
 
         CITICS_code.to_pickle(save_path + 'code_from_CITICS' + str(level) + '.pkl')
 
-
-# 3、储存必要的基础数据的衍生数据
+# 5、储存必要的基础数据的衍生数据
+def get_other_factor(address):
+    # 1、保存全市场股票池
+    _store_stock_list(address)
+    # 2、保存ST个股
+    _store_ST(address)
+    # 3、保存停牌个股
+    _store_live_days_and_pause(address)
+    # 4、保存涨跌停个股
+    _store_price_get_limit(address)
 # (1)存储基础股票池数据
 def _get_stock_list(date,address):
 
@@ -331,7 +341,7 @@ def _get_stock_list(date,address):
     return df
 def _store_stock_list(address):
     date = get_date_range(20100101)
-    df = _get_stock_list(date)
+    df = _get_stock_list(date,address)
     df['true'] = True
     df = df.pivot('date', 'code', 'true').fillna(False)
     df = df.apply(pd.to_numeric,errors='ignore')
@@ -384,7 +394,6 @@ def _store_live_days_and_pause(address):
     pause.to_pickle('%s/pause.pkl' % address)
 # (4)获取涨跌停个股
 def _store_price_get_limit(address):
-
     limit_up = pd.read_pickle('%s/limit_up.pkl' % address)
     limit_down = pd.read_pickle('%s/limit_down.pkl' % address)
     close = pd.read_pickle('%s/close.pkl' % address)
@@ -404,20 +413,9 @@ def _store_price_get_limit(address):
     limit_up.to_pickle('%s/limit_up.pkl' % address)
     limit_down.to_pickle('%s/limit_down.pkl' % address)
 
-def get_other_factor(address):
-    # 1、保存全市场股票池
-    _store_stock_list(address)
-    # 2、保存ST个股
-    _store_ST(address)
-    # 3、保存停牌个股
-    _store_live_days_and_pause(address)
-    # 4、保存涨跌停个股
-    _store_price_get_limit(address)
-
-
 
 if __name__ == '__main__':
-    if datetime.date.today().day >=28: # 月末更新一下
+    if (datetime.date.today().day >=28) or (os.path.exists(stock_address) == False): # 月末更新一下
         get_list_factor(stock_address)
 
     from dataApi.TradeDate import _check_input_date
@@ -438,11 +436,9 @@ if __name__ == '__main__':
     }
     save_ind_dict = {
         'ASWSIndexEOD': {'sw_open': 'S_DQ_OPEN', 'sw_high': 'S_DQ_HIGH', 'sw_low': 'S_DQ_LOW','sw_close': 'S_DQ_CLOSE',
-                         'sw_pre_close': 'S_DQ_PRECLOSE', 'sw_pct_chg': 'S_DQ_PCTCHANGE',
-                         'sw_vol': 'S_DQ_VOLUME', 'sw_amt': 'S_DQ_AMOUNT'},
+                         'sw_pre_close': 'S_DQ_PRECLOSE', 'sw_vol': 'S_DQ_VOLUME', 'sw_amt': 'S_DQ_AMOUNT'},
         'AIndexIndustriesEODCITICS':{'zx_open': 'S_DQ_OPEN', 'zx_high': 'S_DQ_HIGH', 'zx_low': 'S_DQ_LOW','zx_close': 'S_DQ_CLOSE',
-                         'zx_pre_close': 'S_DQ_PRECLOSE', 'zx_pct_chg': 'S_DQ_PCTCHANGE',
-                         'zx_vol': 'S_DQ_VOLUME', 'zx_amt': 'S_DQ_AMOUNT'},
+                         'zx_pre_close': 'S_DQ_PRECLOSE', 'zx_vol': 'S_DQ_VOLUME', 'zx_amt': 'S_DQ_AMOUNT'},
     }
 
     now_time = time.time()
