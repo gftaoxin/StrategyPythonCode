@@ -3,18 +3,12 @@ import pickle
 import pandas as pd
 import numpy as np
 import datetime as dt
-from xquant.marketdata import MarketData
-from xquant.factordata import FactorData
-from xquant.thirdpartydata.marketdata import MarketData as Market3Data
 from dataApi.stockList import trans_windcode2int, trans_int2windcode
 from dataApi.indName import sw_level1, citics_level1
-from dataApi.tradeDate import get_trade_date_interval, trans_datetime2int, get_minute_index, get_recent_trade_date, \
-    get_pre_trade_date, get_date_range, get_desample_minute_panel, trade_minutes
+from dataApi.tradeDate import get_trade_date_interval, trans_datetime2int,, get_recent_trade_date, \
+    get_pre_trade_date, get_date_range, trade_minutes
+from BasicData.local_path import *
 
-fd = FactorData()
-m3d = Market3Data()
-
-base_address = '/data/group/800442/800319/junkData/'
 
 def load_pickle(file):
 
@@ -522,7 +516,7 @@ def get_minute_excess_return(minute_interval, start_date=None, end_date=None, be
 
 def get_modified_ind_mv(date_list=None, code_list=None, ind_type='SW'):
 
-    mv = np.log(get_daily_1factor('mkt_cap_ard', date_list, code_list).values)
+    mv = np.log(get_daily_1factor('f', date_list, code_list).values)
     if ind_type == 'SW':
         ind = get_daily_1factor('SW1', date_list, code_list).values
         ind2 = get_daily_1factor('SW2', date_list, code_list).values
