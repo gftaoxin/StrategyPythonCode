@@ -408,7 +408,7 @@ def get_recent_trade_date(base_date=None, period='D', dividing_point=15):
     return recent_trade_date
 # 调用函数1.2：获取前一个交易日
 def get_pre_trade_date(base_date=None, offset=1, period='D', dividing_point=15):
-
+    base_date = int(base_date)
     recent_trade_date = get_recent_trade_date(base_date, period, dividing_point)
     period_dict = {'D': trade_dates, 'W': trade_weeks, 'M': trade_months,
                    'Q': trade_quarters, 'H': trade_half_years, 'Y': trade_years}

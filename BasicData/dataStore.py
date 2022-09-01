@@ -120,8 +120,8 @@ def get_stock_factor(save_data_dict, start = base_date, resave = False):
             old_name = save_data_dict[table][data_name]
             data_str = old_name +', TRADE_DT, S_INFO_WINDCODE'
             # （1）确定数据的提取日期，即start_date；如果不进行数据冲刷，且存储路径该结果存在，则调整start_date
-            if (resave == False) & (os.path.exists(save_path + data_name + '.pkl') == True):
-                old_data = pd.read_pickle(save_path + data_name + '.pkl')
+            if (resave == False) & (os.path.exists(save_path + data_name + '.h5') == True):
+                old_data = pd.read_pickle(save_path + data_name + '.h5',data_name)
                 start_date = str(old_data.index[-1])
             else:
                 old_data = pd.DataFrame()
@@ -174,8 +174,8 @@ def get_bench_factor(save_data_dict, start = base_date, resave = False):
             old_name = save_data_dict[table][data_name]
             data_str = old_name + ', TRADE_DT, S_INFO_WINDCODE'
             # （1）确定数据的提取日期，即start_date；如果不进行数据冲刷，且存储路径该结果存在，则调整start_date
-            if (resave == False) & (os.path.exists(save_path + data_name + '.pkl') == True):
-                old_data = pd.read_pickle(save_path + data_name + '.pkl')
+            if (resave == False) & (os.path.exists(save_path + data_name + '.h5') == True):
+                old_data = pd.read_pickle(save_path + data_name + '.h5',data_name)
                 start_date = str(old_data.index[-1])
             else:
                 old_data = pd.DataFrame()
@@ -227,8 +227,8 @@ def get_bench_weight(start = base_date,resave = False):
         index_value = ['TRADE_DT', 'S_CON_WINDCODE', 'I_WEIGHT'] if index_name == 'HS300' else \
             ['TRADE_DT', 'S_CON_WINDCODE', 'WEIGHT']
         index_value_str = re.sub('[\'\[\]]', '', str(index_value))
-        if (resave == False) & (os.path.exists(save_path + 'weighted_'+index_name+'.pkl') == True):
-            old_data = pd.read_pickle(save_path + 'weighted_'+index_name+'.pkl')
+        if (resave == False) & (os.path.exists(save_path + 'weighted_'+index_name+'.h5') == True):
+            old_data = pd.read_pickle(save_path + 'weighted_'+index_name+'.h5','weighted_'+index_name)
             start_date = str(old_data.index[-1])
         else:
             old_data = pd.DataFrame()
@@ -283,8 +283,8 @@ def get_ind_factor(save_data_dict, start= base_date, resave=False):
             old_name = save_data_dict[table][data_name]
             data_str = old_name + ', TRADE_DT, S_INFO_WINDCODE'
             # （1）确定数据的提取日期，即start_date；如果不进行数据冲刷，且存储路径该结果存在，则调整start_date
-            if (resave == False) & (os.path.exists(save_path + data_name + '.pkl') == True):
-                old_data = pd.read_pickle(save_path + data_name + '.pkl')
+            if (resave == False) & (os.path.exists(save_path + data_name + '.h5') == True):
+                old_data = pd.read_pickle(save_path + data_name + '.h5', data_name)
                 start_date = str(old_data.index[-1])
             else:
                 old_data = pd.DataFrame()
@@ -386,7 +386,7 @@ def get_other_factor():
 def _get_stock_list(date,address):
 
     _date = _check_input_date(date)
-    df = pd.read_pickle(address + 'pre_close.pkl')
+    df = pd.read_hdf('%s/pre_close.h5' % address, 'pre_close')
     df.index = df.index.map(int)
     df.columns = df.columns.map(trans_windcode2int)
     df = df.stack().reset_index()
@@ -424,20 +424,20 @@ def judge_ST():
 def _store_ST(address):
     date = get_date_range(20100101)
     ST = judge_ST().reindex(date).ffill()
-    stock_list = pd.read_pickle('%s/stock_list.pkl' % address)
+    stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list')
 
     ST = ST.reindex_like(stock_list) == 1
     ST = ST.apply(pd.to_numeric,errors='ignore')
     ST.to_hdf('%s/ST.h5' % address, 'ST', format='t')
 # (3)保存停牌个股，给个股上市天数
 def _store_live_days_and_pause(address):
-    amt = pd.read_pickle(address + 'amt.pkl')
+    amt = pd.read_hdf('%s/amt.h5' % address, 'amt')
     amt.index = amt.index.map(int)
     amt.columns = amt.columns.map(trans_windcode2int)
 
     pause = amt.fillna(0) <= 1
     live_days = (~pause).cumsum()
-    stock_list = pd.read_pickle('%s/stock_list.pkl' % address)
+    stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list')
     live_days = live_days.reindex_like(stock_list).fillna(0)
     pause = pause.reindex_like(stock_list) == 1
     live_days = live_days.apply(pd.to_numeric, errors='ignore')
@@ -454,7 +454,7 @@ def _store_price_get_limit(address):
     limit_up = maxupordown > 0.5
     limit_down = maxupordown < -0.5
 
-    stock_list = pd.read_pickle('%s/stock_list.pkl' % address)
+    stock_list = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list')
     limit_up = limit_up.reindex_like(stock_list) == 1
     limit_down = limit_down.reindex_like(stock_list) == 1
 
