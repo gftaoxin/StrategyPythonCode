@@ -1,10 +1,7 @@
-import time
-import threading
+# # 函数完成
 import pandas as pd
 import numpy as np
-import datetime as dt
-import os,pickle,gc,re
-from dataApi.TradeDate import get_date_range, get_pre_trade_date, _check_input_date, get_recent_trade_date, trans_datetime2int, get_trade_date_interval
+from dataApi.tradeDate import  get_recent_trade_date, trans_datetime2int
 from functools import reduce
 from BasicData.local_path import *
 
@@ -127,11 +124,9 @@ def get_stock_list(date=None,address = stock_address):
     date = get_recent_trade_date(date)
     stock_list = pd.read_pickle(address + '/stock_list.pkl').loc[date]
     stock_list[stock_list].index.to_list()
-
     #row = get_trade_date_interval(date)
     #stock_list = pd.read_hdf(address + '/stock_list.h5', 'stock_list', start=row, stop=row+1).iloc[0]
     #stock_list = stock_list[stock_list].index.to_list()
-
     return stock_list
 
 # 函数3：获取申万和中信行业代码对应的名称
@@ -152,21 +147,18 @@ def get_ind_con(ind_type='sw_new',level=1):
         raise ValueError("level type should be int or list ")
     return dict_data
 
-
+# 函数4：通常默认股票池尾非STPT，至少上市1年，没有停牌，复牌至少一天
 def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause=True, least_recover_days=1,
                      no_pause_limit=0.5, no_pause_stats_days=120, no_limit_up=False, no_limit_down=False,
-                     other_limit=None, start_date=None, end_date=None, trade_mode=False,
-                     address=stock_address):
+                     start_date=None, end_date=None, trade_mode=False,address=stock_address):
 
     today = get_recent_trade_date(dividing_point=8.8 if trade_mode else 17.3)
 
     requires = {}
     if stock_list == 'ALL':
-        stock_list = pd.read_pickle('%s/stock_list.h5' % address)
-    elif stock_list == 'COMMON':
-        stock_list = pd.read_hdf('%s/common_stock_list.h5' % address, 'common_stock_list')
-    elif stock_list in ('HS300', 'ZZ500', 'ZZ1000', 'SZ50'):
-        stock_list = pd.read_hdf('%s/common_stock_list.h5' % address, stock_list)
+        stock_list = pd.read_pickle('%s/stock_list.pkl' % address)
+    elif stock_list in ('HS300', 'ZZ500', 'ZZ800', 'SZ50'):
+        stock_list = pd.read_pickle('%s/weighted_%s.pkl' % (bench_address,stock_list))
     else:
         raise ValueError("stock_list must in (ALL, COMMON, HS300, ZZ500, ZZ1000, SZ50).")
 
@@ -174,44 +166,33 @@ def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause
     requires['stock_list'] = stock_list
 
     if no_ST:
-        ST = pd.read_hdf('%s/ST.h5' % address, 'ST').reindex_like(stock_list)
+        ST = pd.read_pickle('%s/ST.pkl' % address).reindex_like(stock_list)
         requires['ST'] = ST != True
 
     if least_live_days >= 2:
-        live_days = pd.read_hdf('%s/stock_list.h5' % address, 'stock_list').cumsum()
+        live_days = pd.read_pickle('%s/stock_list.pkl' % address).cumsum()
         live_days = live_days.shift(-1) if trade_mode else live_days
         live_days = live_days.reindex_like(stock_list)
-        requires['live_days'] = live_days >= least_live_days
+        requires['live_days'] = ((live_days >= least_live_days) | (live_days.T == live_days.max(axis=1)).T)
 
     if no_pause:
-        pause = pd.read_hdf('%s/pause.h5' % address, 'pause')
+        pause = pd.read_pickle('%s/pause.pkl' % address)
         pause = pause.shift(-1) if trade_mode else pause
         pause1 = pause[pause > 0.5].ffill(limit=least_recover_days-1) if least_recover_days >= 2 else pause[pause == True]
         requires['pause'] = pause1.isnull().reindex_like(stock_list)
 
         if no_pause_limit > 0:
 
-            pause2 = pause.rolling(no_pause_stats_days, min_periods=1).sum() / pause.rolling(
-                no_pause_stats_days, min_periods=1).count()
-
+            pause2 = pause.rolling(no_pause_stats_days, min_periods=1).sum() / pause.rolling(no_pause_stats_days, min_periods=1).count()
             requires['pause2'] = pause2.isnull().reindex_like(stock_list) < 0.5
 
     if no_limit_up:
-        limit_up = pd.read_hdf('%s/limit_up.h5' % address, 'limit_up').reindex_like(stock_list)
+        limit_up = pd.read_pickle('%s/limit_up.pkl' % address).reindex_like(stock_list)
         requires['limit_up'] = limit_up != True
 
     if no_limit_down:
-        limit_down = pd.read_hdf('%s/limit_down.h5' % address, 'limit_down').reindex_like(stock_list)
+        limit_down = pd.read_pickle('%s/limit_down.pkl' % address).reindex_like(stock_list)
         requires['limit_down'] = limit_down != True
-
-    if other_limit is not None:
-
-        for key in other_limit:
-            other = pd.read_hdf('%s/%s.h5' % (address, key), key).reindex_like(stock_list).rank(axis=1, pct=True)
-            limit = other_limit[key] if isinstance(other_limit[key], list) else [other_limit[key]]
-            requires[key] = True
-            for i in limit:
-                requires[key] &= other > i if i < 0.5 else other <= i
 
     if requires.__len__() > 1:
         stock_list = reduce(lambda x, y: x & y, requires.values())
