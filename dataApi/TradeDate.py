@@ -345,6 +345,8 @@ trade_minutes = [
 1445, 1446, 1447, 1448, 1449, 1450, 1451, 1452, 1453, 1454, 1455, 1456, 1457, 1458, 1459,
 1500]
 
+stock_address = base_address+'daily/'
+
 trade_calendar = pd.read_pickle(stock_address + 'trade_calendar.pkl')
 trade_dates = pd.read_pickle(stock_address + 'trade_date.pkl')
 trade_weeks = trade_calendar[trade_calendar['WeekEnd']==1].index.to_list()
@@ -380,6 +382,13 @@ def _check_input_date(date):
     else:
         raise Exception("dateTime传入类型错误：目前只支持int和List(int)类型！")
     return _date
+
+def get_trade_date_interval(date=None, base_date=base_date):
+
+    _date = get_recent_trade_date(date)
+    _base_date = get_recent_trade_date(base_date)
+    interval = trade_dates.index(_date) - trade_dates.index(_base_date) - 1
+    return interval
 
 # 调用函数1.1：获取当前的交易日
 def get_recent_trade_date(base_date=None, period='D', dividing_point=15):
@@ -429,7 +438,7 @@ def get_date_range(start_date, end_date=None, period='D', dividing_point=15):
         raise ValueError
     return date_range
 # 调用函数1.4：获取交易日区间
-def get_trade_date_interval(date=None, base_date=20100101):
+def get_trade_date_interval(date=None, base_date=base_date):
 
     _date = get_recent_trade_date(date)
     _base_date = get_recent_trade_date(base_date)

@@ -1,9 +1,12 @@
 # # 函数完成
 import pandas as pd
 import numpy as np
-from dataApi.tradeDate import  get_recent_trade_date, trans_datetime2int
+from dataApi.tradeDate import  get_recent_trade_date, trans_datetime2int, get_trade_date_interval
 from functools import reduce
 from BasicData.local_path import *
+
+stock_address = base_address+'daily/'
+bench_address = base_address+'dailyBench/'
 
 def _handle_params(trading_codes=None, date_list=None, factor_list=None):
     """
@@ -114,19 +117,18 @@ def trans_int2windcode(code):
         raise Exception('input code type error')
 
 # 函数2.1：获取某一日的股票列表
-def get_code_list(address = stock_address):
+def get_code_list(address = base_address+'daily/'):
     code_list = pd.read_pickle(address + 'code_list.pkl')
     return code_list
 
-def get_stock_list(date=None,address = stock_address):
+def get_stock_list(date=None,address = base_address+'daily/'):
     if date != None:
         date = trans_datetime2int(date)
     date = get_recent_trade_date(date)
-    stock_list = pd.read_pickle(address + '/stock_list.pkl').loc[date]
+    row = get_trade_date_interval(date)
+    stock_list = pd.read_hdf(address + '/stock_list.h5', 'stock_list', start=row, stop=row + 1).iloc[0]
     stock_list[stock_list].index.to_list()
-    #row = get_trade_date_interval(date)
-    #stock_list = pd.read_hdf(address + '/stock_list.h5', 'stock_list', start=row, stop=row+1).iloc[0]
-    #stock_list = stock_list[stock_list].index.to_list()
+
     return stock_list
 
 # 函数3：获取申万和中信行业代码对应的名称

@@ -5,7 +5,7 @@ import cx_Oracle
 import gc,re
 
 base_address = 'E:/ABasicData/'
-start = '20100101'
+base_date = '20100101'
 
 '''
 ['open', 'S_DQ_OPEN', '开盘价']

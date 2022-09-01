@@ -105,7 +105,7 @@ save_stockdaily_dict = {
 
     }
 
-def get_stock_factor(save_data_dict, start = start, resave = False):
+def get_stock_factor(save_data_dict, start = base_date, resave = False):
     save_path = base_address + 'daily/'
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date()) # 1、获取数据都区范围
@@ -141,7 +141,7 @@ def get_stock_factor(save_data_dict, start = start, resave = False):
                 save_data = pd.concat([old_data,save_data])
                 save_data = save_data[~save_data.index.duplicated('last')]
 
-                if save_data.index[0] > 20120104:
+                if save_data.index[0] > get_pre_trade_date(base_date, -1):
                     print(data_name+'数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data.to_hdf('%s/%s.h5' % (save_path,data_name), data_name, format='t')
@@ -150,14 +150,14 @@ def get_stock_factor(save_data_dict, start = start, resave = False):
                 print(data_name + '今日数据已更新')
             gc.collect()
 
-# 2、储存指数基础数据：把所有字符串日期，改为数字日期，初始日期变成特定日期20120101
+# 2、储存指数基础数据：把所有字符串日期，改为数字日期，初始日期变成特定日期20100101
 save_benchdaily_dict = {
     'AIndexEODPrices': {'open': 'S_DQ_OPEN', 'high': 'S_DQ_HIGH', 'low': 'S_DQ_LOW','close': 'S_DQ_CLOSE',
                         'pre_close': 'S_DQ_PRECLOSE', 'pct_chg': 'S_DQ_PCTCHANGE',
                         'vol': 'S_DQ_VOLUME', 'amt': 'S_DQ_AMOUNT'},
 }
 
-def get_bench_factor(save_data_dict, start = start, resave = False):
+def get_bench_factor(save_data_dict, start = base_date, resave = False):
     save_path = base_address + 'dailyBench/'
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date())  # 1、获取数据都区范围
@@ -205,7 +205,7 @@ def get_bench_factor(save_data_dict, start = start, resave = False):
                 save_data = pd.concat([old_data, save_data])
                 save_data = save_data[~save_data.index.duplicated('last')]
 
-                if save_data.index[0] > 20120104:
+                if save_data.index[0] > get_pre_trade_date(base_date, -1):
                     print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data.to_hdf('%s/%s.h5' % (save_path,data_name), data_name, format='t')
@@ -215,7 +215,7 @@ def get_bench_factor(save_data_dict, start = start, resave = False):
 
             gc.collect()
 # (1)获取指数成分股信息
-def get_bench_weight(start_date = start,resave = False):
+def get_bench_weight(start = base_date,resave = False):
     save_path = base_address + 'dailyBench/'
     icode_dict = {'SZ50': '000016.SH', 'HS300': '000300.SH', 'ZZ500': '000905.SH', 'ZZ800':'000906.SH'}
     icode_table = {'SZ50': 'AIndexSSE50Weight', 'HS300': 'AIndexHS300Weight',
@@ -228,11 +228,11 @@ def get_bench_weight(start_date = start,resave = False):
             ['TRADE_DT', 'S_CON_WINDCODE', 'WEIGHT']
         index_value_str = re.sub('[\'\[\]]', '', str(index_value))
         if (resave == False) & (os.path.exists(save_path + 'weighted_'+index_name+'.pkl') == True):
-            resave== True
             old_data = pd.read_pickle(save_path + 'weighted_'+index_name+'.pkl')
             start_date = str(old_data.index[-1])
         else:
             old_data = pd.DataFrame()
+            start_date = start
 
         if int(start_date) < int(end_date):
             sql = r"select %s from wind.%s a where a.S_INFO_WINDCODE = '%s' and" \
@@ -250,12 +250,12 @@ def get_bench_weight(start_date = start,resave = False):
             save_data = pd.concat([old_data, save_data])
             save_data = save_data[~save_data.index.duplicated('last')]
 
-            if save_data.index[0] > 20120104:
+            if save_data.index[0] > get_pre_trade_date(base_date, -1):
                 print(index_name + '权重数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
             # 将该输出到保存地址中
             save_data.to_hdf('%s/weighted_%s.h5' % (save_path, index_name), 'weighted_'+index_name, format='t')
 
-# 4=3、存储行业基础数据：要把所有字符串日期，改为数字日期，初始日期变成特定日期20120101
+# 4=3、存储行业基础数据：要把所有字符串日期，改为数字日期，初始日期变成特定日期20100101
 save_inddaily_dict = {
         'ASWSIndexEOD': {'sw_open': 'S_DQ_OPEN', 'sw_high': 'S_DQ_HIGH', 'sw_low': 'S_DQ_LOW','sw_close': 'S_DQ_CLOSE',
                          'sw_pre_close': 'S_DQ_PRECLOSE', 'sw_vol': 'S_DQ_VOLUME', 'sw_amt': 'S_DQ_AMOUNT'},
@@ -263,7 +263,7 @@ save_inddaily_dict = {
                          'zx_pre_close': 'S_DQ_PRECLOSE', 'zx_vol': 'S_DQ_VOLUME', 'zx_amt': 'S_DQ_AMOUNT'},
     }
 
-def get_ind_factor(save_data_dict, start= start, resave=False):
+def get_ind_factor(save_data_dict, start= base_date, resave=False):
     save_path = base_address + 'dailyBench/'
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date())  # 1、获取数据都区范围
@@ -302,7 +302,7 @@ def get_ind_factor(save_data_dict, start= start, resave=False):
                 save_data = pd.concat([old_data, save_data])
                 save_data = save_data[~save_data.index.duplicated('last')]
 
-                if save_data.index[0] > 20120104:
+                if save_data.index[0] > get_pre_trade_date(base_date, -1):
                     print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data.to_hdf('%s/%s.h5' % (save_path,data_name), data_name, format='t')
@@ -312,7 +312,7 @@ def get_ind_factor(save_data_dict, start= start, resave=False):
 
             gc.collect()
 # (1)获取行业成分股信息
-def get_ind_weight(start= start):
+def get_ind_weight(start= base_date):
     save_path = base_address + 'dailyBench/'
     date_list, code_list = get_date_range(start), get_code_list()
     # 分别获取申万一级行业，申万二级行业，申万三级行业的个股归属情况
@@ -322,7 +322,7 @@ def get_ind_weight(start= start):
 
     sql = r"select %s from wind.%s " % (SW_data_str, SW_table)
     SW_data = pd.read_sql(sql, con)
-    SW_data = SW_data[(SW_data['S_CON_OUTDATE'].isna()==True) | (SW_data['S_CON_OUTDATE']>='20120101')]
+    SW_data = SW_data[(SW_data['S_CON_OUTDATE'].isna()==True) | (SW_data['S_CON_OUTDATE']>=str(base_date))]
 
     SW_data['S_CON_WINDCODE'] = SW_data['S_CON_WINDCODE'].apply(lambda x:trans_windcode2int(x))
     SW_data['S_CON_OUTDATE'] = SW_data['S_CON_OUTDATE'].apply(pd.to_numeric,errors='ignore')
@@ -351,7 +351,7 @@ def get_ind_weight(start= start):
 
         sql = r"select %s from wind.%s " % (CITICS_data_str, CITICS_table)
         CITICS_data = pd.read_sql(sql, con)
-        CITICS_data = CITICS_data[(CITICS_data['S_CON_OUTDATE'].isna() == True) | (CITICS_data['S_CON_OUTDATE'] >= '20120101')]
+        CITICS_data = CITICS_data[(CITICS_data['S_CON_OUTDATE'].isna() == True) | (CITICS_data['S_CON_OUTDATE'] >= str(base_date))]
 
         CITICS_data['S_CON_WINDCODE'] = CITICS_data['S_CON_WINDCODE'].apply(lambda x: trans_windcode2int(x))
         CITICS_data['S_CON_OUTDATE'] = CITICS_data['S_CON_OUTDATE'].apply(pd.to_numeric, errors='ignore')
@@ -468,12 +468,12 @@ if __name__ == '__main__':
     if (datetime.date.today().day >=28) or (os.path.exists(base_address+'daily/') == False): # 月末更新一下
         get_list_factor()
 
-    from dataApi.tradeDate import _check_input_date
+    from dataApi.tradeDate import _check_input_date, get_pre_trade_date
     from dataApi.stockList import *
 
     now_time = time.time()
     get_stock_factor(save_stockdaily_dict)  # 保存个股日品信息
-    get_bench_factor(save_inddaily_dict)    # 保存指数日频信息
+    get_bench_factor(save_benchdaily_dict)    # 保存指数日频信息
     get_ind_factor(save_inddaily_dict)      # 保存行业日频信息
     print('基础数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
     get_bench_weight()
