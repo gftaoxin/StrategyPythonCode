@@ -383,17 +383,13 @@ def _check_input_date(date):
         raise Exception("dateTime传入类型错误：目前只支持int和List(int)类型！")
     return _date
 
-def get_trade_date_interval(date=None, base_date=base_date):
-
-    _date = get_recent_trade_date(date)
-    _base_date = get_recent_trade_date(base_date)
-    interval = trade_dates.index(_date) - trade_dates.index(_base_date) - 1
-    return interval
 
 # 调用函数1.1：获取当前的交易日
 def get_recent_trade_date(base_date=None, period='D', dividing_point=15):
     if base_date is None:
         base_date = get_today(dividing_point)
+    else:
+        base_date = int(base_date)
 
     period_dict = {'D': trade_dates, 'W': trade_weeks, 'M': trade_months,
                    'Q': trade_quarters, 'H': trade_half_years, 'Y': trade_years}
@@ -408,7 +404,10 @@ def get_recent_trade_date(base_date=None, period='D', dividing_point=15):
     return recent_trade_date
 # 调用函数1.2：获取前一个交易日
 def get_pre_trade_date(base_date=None, offset=1, period='D', dividing_point=15):
-    base_date = int(base_date)
+    if base_date is None:
+        base_date = get_today(dividing_point)
+    else:
+        base_date = int(base_date)
     recent_trade_date = get_recent_trade_date(base_date, period, dividing_point)
     period_dict = {'D': trade_dates, 'W': trade_weeks, 'M': trade_months,
                    'Q': trade_quarters, 'H': trade_half_years, 'Y': trade_years}
@@ -425,9 +424,11 @@ def get_pre_trade_date(base_date=None, offset=1, period='D', dividing_point=15):
     return preTradeDate
 # 调用函数1.3：获取某个区间的交易日
 def get_date_range(start_date, end_date=None, period='D', dividing_point=15):
-
+    start_date = int(start_date)
     if end_date is None:
         end_date = get_today(dividing_point)
+    else:
+        end_date = int(end_date)
 
     period_dict = {'D': trade_dates, 'W': trade_weeks, 'M': trade_months, 'Q': trade_quarters,
                    'H': trade_half_years, 'Y': trade_years, 'R': report_dates}
@@ -437,13 +438,14 @@ def get_date_range(start_date, end_date=None, period='D', dividing_point=15):
     else:
         raise ValueError
     return date_range
-# 调用函数1.4：获取交易日区间
+# 调用函数1.4：获取两个日期之间的交易日
 def get_trade_date_interval(date=None, base_date=base_date):
 
     _date = get_recent_trade_date(date)
     _base_date = get_recent_trade_date(base_date)
     interval = trade_dates.index(_date) - trade_dates.index(_base_date) - 1
     return interval
+
 
 # 调用函数2.1：时间和int的转换
 def trans_int2datetime(date, out_format='date', input_date=True, time_digit=0):

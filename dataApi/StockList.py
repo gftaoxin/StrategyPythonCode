@@ -131,25 +131,7 @@ def get_stock_list(date=None,address = base_address+'daily/'):
 
     return stock_list
 
-# 函数3：获取申万和中信行业代码对应的名称
-def get_ind_con(ind_type='sw_new',level=1):
-    # 输入：sw_old,sw_new,CITICS,获取申万和中信对应的指数代码，指数名称
-    level_dict = {1: ['一级行业代码', '一级行业名称'],
-                  2: ['二级行业代码', '二级行业名称'],
-                  3: ['三级行业代码', '三级行业名称']}
-    ind_name = pd.read_excel(base_address + '行业分类.xlsx',sheet_name=ind_type)
-    if type(level) == int:
-        dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
-    elif type(level) == list:
-        df = pd.Series()
-        for l in level:
-            df = pd.concat([df,ind_name[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].drop_duplicates()])
-        dict_data = df.to_dict()
-    else:
-        raise ValueError("level type should be int or list ")
-    return dict_data
-
-# 函数4：通常默认股票池尾非STPT，至少上市1年，没有停牌，复牌至少一天
+# 函数3：通常默认股票池尾非STPT，至少上市1年，没有停牌，复牌至少一天
 def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause=True, least_recover_days=1,
                      no_pause_limit=0.5, no_pause_stats_days=120, no_limit_up=False, no_limit_down=False,
                      start_date=None, end_date=None, trade_mode=False,address=base_address):
@@ -210,3 +192,21 @@ def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause
 
     return stock_list
 
+
+# 函数4：获取申万和中信行业代码对应的名称
+def get_ind_con(ind_type='SW2021',level=1):
+    # 输入：sw,sw2021,CITICS,获取申万和中信对应的指数代码，指数名称
+    level_dict = {1: ['一级行业代码', '一级行业名称'],
+                  2: ['二级行业代码', '二级行业名称'],
+                  3: ['三级行业代码', '三级行业名称']}
+    ind_name = pd.read_excel(base_address + '行业分类.xlsx',sheet_name=ind_type)
+    if type(level) == int:
+        dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+    elif type(level) == list:
+        df = pd.Series()
+        for l in level:
+            df = pd.concat([df,ind_name[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].drop_duplicates()])
+        dict_data = df.to_dict()
+    else:
+        raise ValueError("level type should be int or list ")
+    return dict_data
