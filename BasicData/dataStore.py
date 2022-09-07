@@ -180,6 +180,7 @@ def get_stock_factor(save_data_dict, start = base_date, resave = False):
                 if save_data.index[0] > get_pre_trade_date(base_date, -1):
                     print(data_name+'数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
+                save_data = save_data.reindex(get_date_range(base_date,int(end_date)))
                 save_data.to_hdf('%s/%s.h5' % (save_path,data_name), data_name, format='t')
                 print(data_name + '存储完毕')
             else:
@@ -224,7 +225,8 @@ def get_bench_weight(start = base_date,resave = False):
             if save_data.index[0] > max(get_pre_trade_date(base_date, -1),20120104):
                 print(index_name + '权重数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
             # 将该输出到保存地址中
-            save_data.to_hdf('%s/weighted_%s.h5' % (save_path, index_name), index_name+'_weight', format='t')
+            save_data = save_data.reindex(get_date_range(base_date, int(end_date)))
+            save_data.to_hdf('%s/%s.h5' % (save_path, index_name), index_name, format='t')
 # (2)获取行业成分股信息
 def get_ind_weight(start= base_date):
     save_path = base_address + 'daily/'
@@ -255,7 +257,7 @@ def get_ind_weight(start= base_date):
 
                 SW_code.loc[ind_start_date:ind_end_date,code] = ind
 
-            SW_code.to_hdf('%s/%s%s_code.h5' % (save_path, sw_type,str(level)), sw_type+str(level), format='t')
+            SW_code.to_hdf('%s/%s%s.h5' % (save_path, sw_type,str(level)), sw_type+str(level), format='t')
 
     # 分别获取中信一级行业，中信二级行业的个股归属情况
     for level in [1,2]:
@@ -282,8 +284,7 @@ def get_ind_weight(start= base_date):
 
             CITICS_code.loc[ind_start_date:ind_end_date, code] = ind
 
-        CITICS_code.to_hdf('%s/CITICS%s_code.h5' % (save_path, str(level)), 'CITICS' + str(level) + '_code', format='t')
-
+        CITICS_code.to_hdf('%s/CITICS%s.h5' % (save_path, str(level)), 'CITICS' + str(level), format='t')
 
 # 2、储存指数基础数据：把所有字符串日期，改为数字日期，初始日期变成特定日期20100101
 save_benchdaily_dict = {
@@ -354,6 +355,7 @@ def get_bench_factor(save_data_dict, start = base_date, resave = False):
                 if save_data.index[0] > get_pre_trade_date(base_date, -1):
                     print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
+                save_data = save_data.reindex(get_date_range(base_date, int(end_date)))
                 save_data.to_hdf('%s/%s.h5' % (save_path,data_name), data_name, format='t')
                 print(data_name + '存储完毕')
             else:
@@ -412,6 +414,7 @@ def get_ind_factor(save_data_dict, start= base_date, resave=False):
                 if save_data.index[0] > get_pre_trade_date(base_date, -1):
                     print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
+                save_data = save_data.reindex(get_date_range(base_date, int(end_date)))
                 save_data.to_hdf('%s/%s.h5' % (save_path,data_name), data_name, format='t')
                 print(data_name + '存储完毕')
             else:
@@ -420,7 +423,7 @@ def get_ind_factor(save_data_dict, start= base_date, resave=False):
             gc.collect()
 
 
-# 5、储存必要的基础数据的衍生数据
+# 4、储存必要的基础数据的衍生数据
 def get_other_factor():
     address = base_address + 'daily/'
     # 1、保存全市场股票池
@@ -519,7 +522,6 @@ if __name__ == '__main__':
 
     from dataApi.tradeDate import _check_input_date, get_pre_trade_date, get_date_range
     from dataApi.stockList import *
-
 
     now_time = time.time()
     get_stock_factor(save_stockdaily_dict)  # 保存个股日品信息

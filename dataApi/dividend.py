@@ -3,7 +3,6 @@ import pandas as pd
 from dataApi.stockList import *
 con = cx_Oracle.connect("windquery", "wind2010query", "10.2.89.132:1521/winddb", threaded=True) # 写入信号
 
-
 def getEXRightDividend():
     table = 'AShareEXRightDividendRecord'
     factors = ['BONUS_SHARE_RATIO', 'CONVERSED_RATIO', 'RIGHTSISSUE_RATIO', 'SEO_RATIO', 'RIGHTSISSUE_PRICE',
