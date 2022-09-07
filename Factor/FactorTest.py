@@ -1,3 +1,4 @@
+import time
 from dataApi.dividend import *
 from dataApi.getData import *
 from dataApi.indName import *
@@ -54,15 +55,83 @@ stock_factor_list = [
     'alpha_24m','alpha_60m']
 
 bench_factor_list = [
-    'open','high','low','close','pre_close','pct_chg','turn','free_turn','vol','amt','pe','pe_ttm',
+    'open','high','low','close','pre_close','pct_chg','turn','free_turn','volume','amt','pe','pe_ttm',
     'pb','pcf','pcf_ttm','ps','ps_ttm','dividend_yield','peg_his']
 
-ind_factor_list = ['open','high','low','close','pre_close','vol','amt','pe','pb']
+SW_factor_list = ['open','high','low','close','pre_close','volume','amt','pe','pb']
+CITICS_factor_list = ['open','high','low','close','pre_close','volume','amt']
 
 get_daily_1day(stock_factor_list,date = 20220905,type='stock')
+get_daily_1day(bench_factor_list,date = 20220905,type='bench')
+get_daily_1day(SW_factor_list,date = 20220905,type='SW')
+get_daily_1day(CITICS_factor_list,date = 20220905,type='CITICS')
+
+
+get_daily_1stock(code=1,factor_list=stock_factor_list,date_list=get_date_range(20150101,20220905),type='stock')
+get_daily_1stock(code='HS300',factor_list=bench_factor_list,date_list=get_date_range(20150101,20220905),type='bench')
+get_daily_1stock(code='801010.SI',factor_list=SW_factor_list,date_list=get_date_range(20150101,20220905),type='SW')
+get_daily_1stock(code='CI005028.WI',factor_list=CITICS_factor_list,date_list=get_date_range(20150101,20220905),type='CITICS')
+
+for factor in stock_factor_list:
+    t =time.time()
+    print(get_daily_1factor(factor,date_list = get_date_range(20150101,20220905), type='stock'))
+    print(factor,time.time()-t)
+
+for factor in bench_factor_list:
+    t = time.time()
+    print(get_daily_1factor(factor, date_list=get_date_range(20150101, 20220905), type='bench'))
+    print(factor,time.time() - t)
+
+for factor in SW_factor_list:
+    t = time.time()
+    print(get_daily_1factor(factor, date_list=get_date_range(20150101, 20220905), type='SW'))
+    print(factor, time.time() - t)
+
+for factor in CITICS_factor_list:
+    t = time.time()
+    print(get_daily_1factor(factor, date_list=get_date_range(20150101, 20220905), type='CITICS'))
+    print(factor, time.time() - t)
+
+
+get_quarter_1factor(factor='STOT_CASH_INFLOWS_OPER_ACT',table='AShareCashFlow',report_type='408001000',date_list=get_date_range(20150101,20210101))
+
+df  = get_single_quarter(factor = 'OPER_REV',table='AShareIncome')
+
+get_ttm_quarter(factor = 'OPER_REV',table='AShareIncome')
+
+get_qoq(df)
+get_yoy(df)
+
+fill_quarter2daily_by_fixed_date(df, keep = 'first')
+fill_quarter2daily_by_issue_date(df, 'AShareIncome', '408002000', keep = 'first')
 
 
 
 
 
 
+
+
+
+
+
+tables = 'GFZQEDB'
+factor_list = ['F2_4112','F3_4112','F4_4112','F5_4112','TDATE','INDICATOR_NUM']
+factor_list_str = re.sub('[\'\[\]]', '', str(factor_list))
+
+sql =r"select %s from wind.%s a where a.TDATE >= '%s'" % (factor_list_str, tables, '20100101')
+save_data = pd.read_sql(sql, con)
+
+save_bydate = save_data[save_data['F5_4112']==1]
+save_byweek = save_data[save_data['F5_4112']==2]
+save_bymonth = save_data[save_data['F5_4112']==3]
+save_byquarters = save_data[save_data['F5_4112']==4]
+save_byyear = save_data[save_data['F5_4112']==6]
+
+save_data1 = save_byyear.pivot_table('INDICATOR_NUM',index='TDATE',columns = 'F3_4112')
+save_data
+
+
+
+
+save_data['INDICATOR_NUM']

@@ -1,7 +1,7 @@
 import pickle
 import pandas as pd
 import numpy as np
-import cx_Oracle
+import cx_Oracle,re
 from dataApi.stockList import trans_windcode2int, trans_int2windcode, get_code_list
 from dataApi.indName import sw_level1, citics_level1
 from dataApi.tradeDate import get_trade_date_interval, trans_datetime2int, get_recent_trade_date, \
@@ -48,6 +48,8 @@ def get_daily_1day(factor_list, date=None, code_list=None, type='stock', base_da
                     .rename(factor) for factor in factor_list], axis=1)
     if code_list != None:
         df = df.reindex(code_list)
+    if type == 'CITICS' or type == 'SW':
+        df.columns =pd.Series(df.columns).apply(lambda x:x[3:])
     return df
 
 def get_daily_1stock(code, factor_list, date_list=None, type='stock'):
@@ -57,6 +59,12 @@ def get_daily_1stock(code, factor_list, date_list=None, type='stock'):
         code = trans_windcode2int(code)
     elif type == 'bench':
         address = base_address + 'dailyBench'
+    elif type == 'SW':
+        address = base_address + 'dailyBench/'
+        factor_list = ['sw_'+x if x[:2]!='sw' else x for x in factor_list]
+    elif type == 'CITICS':
+        address = base_address + 'dailyBench/'
+        factor_list = ['zx_' + x if x[:2] != 'zx' else x for x in factor_list]
     else:
         raise TypeError("type must be stock or bench")
 
@@ -70,6 +78,8 @@ def get_daily_1stock(code, factor_list, date_list=None, type='stock'):
     if date_list != None:
         _date_list = [trans_datetime2int(x) for x in date_list]
         df = df.reindex(_date_list)
+    if type == 'CITICS' or type == 'SW':
+        df.columns =pd.Series(df.columns).apply(lambda x:x[3:])
 
     return df
 
@@ -81,6 +91,16 @@ def get_daily_1factor(factor, date_list=None, code_list=None, type='stock'):
             code_list = [trans_windcode2int(x) for x in code_list]
     elif type == 'bench':
         address = base_address + 'dailyBench'
+    elif type == 'SW':
+        address = base_address + 'dailyBench/'
+        factor = 'sw_' +factor
+        if code_list == None:
+            code_list = get_ind_con('SW2021',[1,2,3]).keys()
+    elif type == 'CITICS':
+        address = base_address + 'dailyBench/'
+        factor = 'sw_' +factor
+        if code_list == None:
+            code_list = get_ind_con('CITICS', [1, 2, 3]).keys()
     else:
         raise TypeError("type must be stock or bench")
 
@@ -122,7 +142,7 @@ def get_quarter_1factor(factor,table, report_type = '408001000',code_list=None, 
         code_list = [trans_int2windcode(x) for x in code_list]
     else:
         code_list = [trans_int2windcode(x) for x in get_code_list()]
-    if date_list != None:
+    if date_list == None:
         date_list = get_date_range(20090331, None, 'R')
 
     begin,end = int(date_list[0]), int(date_list[-1])
@@ -216,7 +236,48 @@ def fill_quarter2daily_by_issue_date(df, table, report_type, keep = 'last'):
     return _df
 
 
-# 其余数据中性化处理（尚未处理）
+# 使用宏观数据：注意，宏观数据并没有公布日期，所以及时使用会存在严重的使用未来信息的问题
+# 经过将资料查询，为了确保数据的足够延后性，对数据进行以下调整：
+# 1、日度公布数据：当日数据，于第二日收盘后才可取用，即延后一个交易日
+# 2、周度公布数据：当周数据，于第二周周五收盘后才可取用，即延后一周
+# 3、月度数据：当月数据，于下月20日对应的最近交易日才可取用，即延后半个月
+# 4、季度数据：当季数据，于季度结束后2个月的月底才可取用，即延后2个月
+# 5、年度数据：当年数据，于年度结束后的次年5月30日对应的及哦啊一日可以取得
+def get_EBD_data(date_list = None ,fre = 'd'):
+    tables = 'GFZQEDB'
+    factor_list = ['F2_4112', 'F3_4112', 'F4_4112', 'F5_4112', 'TDATE', 'INDICATOR_NUM']
+    factor_list_str = re.sub('[\'\[\]]', '', str(factor_list))
+
+    if date_list == None:
+        date_list = get_date_range(20100101,)
+    start,end = date_list[0], date_list[1]
+
+
+    sql = r"select %s from wind.%s a where a.TDATE >= '%s'" % (factor_list_str, tables, str(start))
+    save_data = pd.read_sql(sql, con)
+    save_data = save_data[save_data['F3_4112'].apply(lambda x:'停止' not in x)]
+
+    if fre == 'd':
+        save_data = save_data[save_data['F5_4112'] == 1]
+    elif fre == 'w':
+        save_data = save_data[save_data['F5_4112'] == 2]
+    elif fre == 'm':
+        save_data = save_data[save_data['F5_4112'] == 3]
+    elif fre == 'q':
+        save_data = save_data[save_data['F5_4112'] == 4]
+    elif fre == 'y':
+        save_data = save_data[save_data['F5_4112'] == 6]
+    else:
+        raise TypeError("fre must be d or w or m or q or y")
+
+    save_data1 = save_data.pivot_table('INDICATOR_NUM', index='TDATE', columns='F3_4112')
+
+    factor_list = [x if '停止' not in x else for x in save_data1.columns]
+
+    (~np.isnan(save_data1)).sum()
+
+
+# 其余数据中性化处理
 def get_modified_ind_mv(date_list=None, code_list=None, ind_type='SW'):
 
     mv = np.log(get_daily_1factor('f', date_list, code_list).values)
@@ -281,6 +342,9 @@ def get_ind_neutral(df, ind_type='SW'):
         np.divide(arr, np.nanmedian(np.abs(np.ma.array(arr, mask=~exist).data), axis=0), out=arr, where=exist)
 
     return df
+
+
+
 
 
 if __name__ == '__main__':

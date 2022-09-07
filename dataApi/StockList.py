@@ -127,7 +127,7 @@ def get_stock_list(date=None,address = base_address+'daily/'):
     date = get_recent_trade_date(date)
     row = get_trade_date_interval(date)
     stock_list = pd.read_hdf(address + '/stock_list.h5', 'stock_list', start=row, stop=row + 1).iloc[0]
-    stock_list[stock_list].index.to_list()
+    stock_list = stock_list[stock_list].index.to_list()
 
     return stock_list
 
@@ -142,9 +142,10 @@ def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause
     if stock_list == 'ALL':
         stock_list = pd.read_hdf('%sdaily/stock_list.h5' % address , 'stock_list')
     elif stock_list in ('HS300', 'ZZ500', 'ZZ800', 'SZ50'):
-        stock_list = pd.read_hdf('%sdailyBench/weighted_%s.h5' % (address, stock_list), 'weighted_' + stock_list)
+        stock_list = pd.read_hdf('%sdaily/%s.h5' % (address, stock_list), stock_list)
+        stock_list = stock_list>0
     else:
-        raise ValueError("stock_list must in (ALL, COMMON, HS300, ZZ500, ZZ1000, SZ50).")
+        raise ValueError("stock_list must in (ALL, HS300, ZZ500, ZZ800, SZ50).")
 
     stock_list = stock_list.loc[:today].shift(-1) > 0.5 if trade_mode else stock_list.loc[:today] > 0.5
     requires['stock_list'] = stock_list
