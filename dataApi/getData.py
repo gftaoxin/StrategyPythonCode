@@ -1,10 +1,11 @@
+import datetime as dt
 import pickle
 import pandas as pd
 import numpy as np
 import cx_Oracle,re
 from dataApi.stockList import trans_windcode2int, trans_int2windcode, get_code_list
 from dataApi.indName import sw_level1, citics_level1
-from dataApi.tradeDate import get_trade_date_interval, trans_datetime2int, get_recent_trade_date, \
+from dataApi.tradeDate import get_trade_date_interval, trans_datetime2int, trans_int2datetime, get_recent_trade_date, \
     get_pre_trade_date, get_date_range
 from dataApi.stockList import get_ind_con
 from BasicData.local_path import *
@@ -238,25 +239,24 @@ def fill_quarter2daily_by_issue_date(df, table, report_type, keep = 'last'):
 
 # 使用宏观数据：注意，宏观数据并没有公布日期，所以及时使用会存在严重的使用未来信息的问题
 # 经过将资料查询，为了确保数据的足够延后性，对数据进行以下调整：
-# 1、日度公布数据：当日数据，于第二日收盘后才可取用，即延后一个交易日
-# 2、周度公布数据：当周数据，于第二周周五收盘后才可取用，即延后一周
+
+
 # 3、月度数据：当月数据，于下月20日对应的最近交易日才可取用，即延后半个月
-# 4、季度数据：当季数据，于季度结束后2个月的月底才可取用，即延后2个月
-# 5、年度数据：当年数据，于年度结束后的次年5月30日对应的及哦啊一日可以取得
-def get_EBD_data(date_list = None ,fre = 'd'):
+
+
+def get_EBD_data(date_list = None ,fre = 'd',weight=0.5):
     tables = 'GFZQEDB'
     factor_list = ['F2_4112', 'F3_4112', 'F4_4112', 'F5_4112', 'TDATE', 'INDICATOR_NUM']
     factor_list_str = re.sub('[\'\[\]]', '', str(factor_list))
 
     if date_list == None:
         date_list = get_date_range(20100101,)
-    start,end = date_list[0], date_list[1]
-
+    start,end = date_list[0], date_list[-1]
 
     sql = r"select %s from wind.%s a where a.TDATE >= '%s'" % (factor_list_str, tables, str(start))
     save_data = pd.read_sql(sql, con)
     save_data = save_data[save_data['F3_4112'].apply(lambda x:'停止' not in x)]
-
+    save_data['TDATE'] = save_data['TDATE'].astype(int)
     if fre == 'd':
         save_data = save_data[save_data['F5_4112'] == 1]
     elif fre == 'w':
@@ -271,82 +271,44 @@ def get_EBD_data(date_list = None ,fre = 'd'):
         raise TypeError("fre must be d or w or m or q or y")
 
     save_data1 = save_data.pivot_table('INDICATOR_NUM', index='TDATE', columns='F3_4112')
+    factor_list = (~np.isnan(save_data1)).sum() / len(save_data1) >=weight
+    factor_list = factor_list[factor_list==True].index.to_list()
+    save_data1 = save_data1[factor_list]
+    if len(save_data1) == 0:
+        print('this dataframe lost losts of data,no suggest to use it')
+        return save_data1
+    # 开始进行日期递延的处理
+    # 1、日度公布数据：当日数据，于第二日收盘后才可取用，即延后一个交易日
+    if fre == 'd':
+        save_data1 = save_data1.shift(1)
+    elif fre == 'w':
+        # 2、周度公布数据：当周数据，于第二周周五收盘后才可取用，即延后一周
+        save_data1 = save_data1.shift(1)
+        save_data1 = save_data1.replace(np.nan,np.inf).reindex(date_list).ffill().replace(np.inf,np.nan)
+    elif fre == 'm':
+        # 3、月度数据：当月数据，于下月20日对应的最近交易日才可取用，即延后半个月
+        save_data1.index = pd.Series(save_data1.index).apply(lambda x:get_recent_trade_date(trans_datetime2int(trans_int2datetime(x) + dt.timedelta(days=20))))
+        save_data1 = save_data1.replace(np.nan,np.inf).reindex(date_list).ffill().replace(np.inf,np.nan)
+    elif fre == 'q':
+        # 4、季度数据：当季数据，于季度结束后2个月的月底才可取用，即延后2个月
+        save_data1.reindex()
+        save_data1.index = pd.Series(save_data1.index).apply()
+        save_data1 = save_data1.replace(np.nan, np.inf).reindex(get_date_range(start, end, period='M')).shift(2).ffill().replace(np.inf,np.nan)
+        save_data1 = save_data1.replace(np.nan, np.inf).reindex(date_list).ffill().replace(np.inf, np.nan)
+    elif fre == 'y':
+        # 5、年度数据：当年数据，于年度结束后的次年5月30日对应的交易日可以取得
+        from dateutil.relativedelta import relativedelta
+        save_data1.index = pd.Series(save_data1.index).apply(
+            lambda x: get_recent_trade_date(trans_datetime2int(trans_int2datetime(x) + relativedelta(months=5))))
 
-    factor_list = [x if '停止' not in x else for x in save_data1.columns]
+        save_data1 = save_data1.replace(np.nan, np.inf).reindex(date_list).ffill().replace(np.inf, np.nan)
 
-    (~np.isnan(save_data1)).sum()
-
-
-# 其余数据中性化处理
-def get_modified_ind_mv(date_list=None, code_list=None, ind_type='SW'):
-
-    mv = np.log(get_daily_1factor('f', date_list, code_list).values)
-    if ind_type == 'SW':
-        ind = get_daily_1factor('SW1', date_list, code_list).values
-        ind2 = get_daily_1factor('SW2', date_list, code_list).values
-        ind[ind == 6134] = ind2[ind == 6134]
-        ind_codes = list(sw_level1.keys())
-        ind_codes.remove(6134)
-        ind_codes += [613401, 613402, 613403]
-    elif ind_type == 'CITICS':
-        ind = get_daily_1factor('CITICS1', date_list, code_list).values
-        ind2 = get_daily_1factor('CITICS2', date_list, code_list).values
-        ind[ind == 'b10m'] = ind2[ind == 'b10m']
-        ind_codes = list(citics_level1.keys())
-        ind_codes.remove('b10m')
-        ind_codes += ['b10m01', 'b10m02', 'b10m03']
-    elif isinstance(ind_type, pd.DataFrame):
-        ind = ind_type.reindex(index=date_list, columns=code_list).values
-        ind_codes = list(set(ind.ravel().tolist()) - {np.nan})
-    else:
-        raise TypeError("ind_type must be SW, CITICS or pandas.DataFrame object")
-    return np.r_['0,3', tuple(ind == x for x in ind_codes)], mv
-
-def get_reg_grow(df, window=4):
-
-    return df.rolling(window).apply(lambda x: (np.arange(window) - (window - 1) / 2).dot(x))
-
-def get_ts_neutral(df, window=4):
-
-    return df / df.rolling(window).mean()
-
-def get_ind_neutral(df, ind_type='SW'):
-
-    date_list = [get_recent_trade_date(x) for x in df.index]
-    code_list = df.columns.to_list()
-    arr = df.values.T
-
-    if ind_type == 'SW':
-        ind = get_daily_1factor('SW1', date_list, code_list).values.T
-        ind2 = get_daily_1factor('SW2', date_list, code_list).values.T
-        ind[ind == 6134] = ind2[ind == 6134]
-        ind_codes = list(sw_level1.keys())
-        ind_codes.remove(6134)
-        ind_codes += [613401, 613402, 613403]
-    elif ind_type == 'CITICS':
-        ind = get_daily_1factor('CITICS1', date_list, code_list).values.T
-        ind2 = get_daily_1factor('CITICS2', date_list, code_list).values.T
-        ind[ind == 'b10m'] = ind2[ind == 'b10m']
-        ind_codes = list(citics_level1.keys())
-        ind_codes.remove('b10m')
-        ind_codes += ['b10m01', 'b10m02', 'b10m03']
-    elif isinstance(ind_type, pd.DataFrame):
-        ind = ind_type.reindex(index=date_list, columns=code_list).values.T
-        ind_codes = list(set(ind.ravel().tolist()) - {np.nan})
-    else:
-        raise TypeError("ind_type must be SW, CITICS or pandas.DataFrame object")
-
-    for i in ind_codes:
-        exist = ind == i
-        np.subtract(arr, np.nanmedian(np.ma.array(arr, mask=~exist).data, axis=0), out=arr, where=exist)
-        np.divide(arr, np.nanmedian(np.abs(np.ma.array(arr, mask=~exist).data), axis=0), out=arr, where=exist)
-
-    return df
+    return save_data1
 
 
 
 
 
-if __name__ == '__main__':
-    df = get_quarter_1factor('tot_oper_rev')
-    df = get_ind_neutral(get_quarter_1factor('tot_oper_rev'))
+
+
+
