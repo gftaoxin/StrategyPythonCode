@@ -201,6 +201,7 @@ def get_ind_con(ind_type='SW2021',level=1):
                   2: ['二级行业代码', '二级行业名称'],
                   3: ['三级行业代码', '三级行业名称']}
     ind_name = pd.read_excel(base_address + '行业分类.xlsx',sheet_name=ind_type)
+    level = int(level) if type(level) == str else level
     if type(level) == int:
         dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
     elif type(level) == list:

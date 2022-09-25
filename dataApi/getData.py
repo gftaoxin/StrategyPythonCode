@@ -95,11 +95,9 @@ def get_daily_1factor(factor, date_list=None, code_list=None, type='stock'):
     elif type == 'SW':
         address = base_address + 'dailyBench/'
         factor = 'sw_' +factor
-        if code_list == None:
-            code_list = get_ind_con('SW2021',[1,2,3]).keys()
     elif type == 'CITICS':
         address = base_address + 'dailyBench/'
-        factor = 'sw_' +factor
+        factor = 'zx_' +factor
         if code_list == None:
             code_list = get_ind_con('CITICS', [1, 2, 3]).keys()
     else:

@@ -80,7 +80,7 @@ save_stockdaily_dict = {
         'pct_chg': 'S_DQ_PCTCHANGE', 'volume': 'S_DQ_VOLUME', 'amt': 'S_DQ_AMOUNT',
         'open_badj': 'S_DQ_ADJOPEN', 'high_badj': 'S_DQ_ADJHIGH','low_badj': 'S_DQ_ADJLOW','close_badj': 'S_DQ_ADJCLOSE',
         'pre_close_badj':'S_DQ_ADJPRECLOSE','adjfactor': 'S_DQ_ADJFACTOR', 'vwap': 'S_DQ_AVGPRICE',
-        'limit_up': 'S_DQ_LIMIT', 'limit_down': 'S_DQ_STOPPING'},
+        'limit_up_price': 'S_DQ_LIMIT', 'limit_down_price': 'S_DQ_STOPPING'},
     # 个股每日数据：估值，换手率，市值，股本
     'AShareEODDerivativeIndicator':{
         'mkt_cap_ard':'S_VAL_MV', 'mkt_free_cap':'S_DQ_MV',
@@ -155,10 +155,15 @@ def get_stock_factor(save_data_dict, start = base_date, resave = False):
         for data_name in save_data_dict[table].keys():
             old_name = save_data_dict[table][data_name]
             data_str = old_name +', TRADE_DT, S_INFO_WINDCODE'
-            # （1）确定数据的提取日期，即start_date；如果不进行数据冲刷，且存储路径该结果存在，则调整start_date
+                # （1）确定数据的提取日期，即start_date；如果不进行数据冲刷，且存储路径该结果存在，则调整start_date
             if (resave == False) & (os.path.exists(save_path + data_name + '.h5') == True):
-                old_data = pd.read_hdf(save_path + data_name + '.h5',data_name)
-                start_date = str(old_data.index[-1])
+                try:
+                    old_data = pd.read_hdf(save_path + data_name + '.h5',data_name).dropna(how='all')
+                    start_date = str(old_data.index[-1])
+                except:
+                    print(data_name + '数据保存存在问题,重新进行存储')
+                    old_data = pd.DataFrame()
+                    start_date = start
             else:
                 old_data = pd.DataFrame()
                 start_date = start
@@ -178,6 +183,7 @@ def get_stock_factor(save_data_dict, start = base_date, resave = False):
                 save_data = save_data[~save_data.index.duplicated('last')]
 
                 if save_data.index[0] > get_pre_trade_date(base_date, -1):
+                    print('数据开始日期为：'+str(save_data.index[0]))
                     print(data_name+'数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
                 # 将该输出到保存地址中
                 save_data = save_data.reindex(get_date_range(base_date,int(end_date)))
@@ -367,9 +373,11 @@ def get_bench_factor(save_data_dict, start = base_date, resave = False):
 save_inddaily_dict = {
         'ASWSIndexEOD': {'sw_open': 'S_DQ_OPEN', 'sw_high': 'S_DQ_HIGH', 'sw_low': 'S_DQ_LOW','sw_close': 'S_DQ_CLOSE',
                          'sw_pre_close': 'S_DQ_PRECLOSE', 'sw_volume': 'S_DQ_VOLUME', 'sw_amt': 'S_DQ_AMOUNT',
-                         'sw_pe':'S_VAL_PE','sw_pb':'S_VAL_PB'},
+                         'sw_pe':'S_VAL_PE','sw_pb':'S_VAL_PB',
+                         'mkt_cap_ard':'S_VAL_MV','mkt_free_cap':'S_DQ_MV'},
         'AIndexIndustriesEODCITICS':{'zx_open': 'S_DQ_OPEN', 'zx_high': 'S_DQ_HIGH', 'zx_low': 'S_DQ_LOW','zx_close': 'S_DQ_CLOSE',
                          'zx_pre_close': 'S_DQ_PRECLOSE', 'zx_volume': 'S_DQ_VOLUME', 'zx_amt': 'S_DQ_AMOUNT'},
+
     }
 
 def get_ind_factor(save_data_dict, start= base_date, resave=False):
@@ -514,6 +522,84 @@ def _store_price_get_limit(address):
     limit_down = limit_down.apply(pd.to_numeric, errors='ignore')
     limit_up.to_hdf('%s/limit_up.h5' % address, 'limit_up', format='t')
     limit_down.to_hdf('%s/limit_down.h5' % address, 'limit_down', format='t')
+# (5）存储北向资金数据
+def store_north_data(address, start = base_date, resave=False):
+    end_date = str(get_recent_trade_date()) # 1、获取数据都区范围
+    # 存储1：保存北向资金的每日总体数据
+    type_table = 'AShareTypeCode'
+    type_factor = ['S_TYPNAME', 'S_ORIGIN_TYPCODE']
+    type_factor_str = re.sub('[\'\[\]]', '', str(type_factor))
+    sql = r"select %s from wind.%s" % (type_factor_str, type_table)
+    TypeCode = pd.read_sql(sql, con)
+    TypeCode = TypeCode[~np.isnan(TypeCode['S_ORIGIN_TYPCODE'].astype(float))]
+    TypeCode = TypeCode.dropna().set_index('S_ORIGIN_TYPCODE')
+
+    north_table = 'SHSCDailyStatistics'
+    north_factor = ['TRADE_DT', 'S_INFO_EXCHMARKET', 'VALUE', 'ITEM_CODE']
+    north_factor_str = re.sub('[\'\[\]]', '', str(north_factor))
+    sql = r"select %s from wind.%s a where a.S_INFO_EXCHMARKET = 'MHN'" % (north_factor_str, north_table)
+    NorthMoney = pd.read_sql(sql, con)
+
+    NorthMoney['ITEM'] = NorthMoney['ITEM_CODE'].apply(lambda x: TypeCode.loc[str(x), 'S_TYPNAME'])
+    North = NorthMoney.pivot_table(index='TRADE_DT', columns='ITEM', values='VALUE')  # 北向资金单日流入，流出情况；累计净流入
+
+    North.index = North.index.astype(int)
+    North = North.reindex(get_date_range(North.index[0], North.index[-1])).fillna(0)
+
+    North.to_hdf('%s/north_funds.h5' % address, 'north_funds', format='t')
+    # 存储2：保存北向资金的个股净流入情况
+    trade_table = 'SHSCChannelholdings'
+    factor_list = ['S_QUANTITY','S_RATIO']
+    for data_name in factor_list:
+        trade_factor_str = data_name + ', S_INFO_WINDCODE, TRADE_DT, S_INFO_EXCHMARKETNAME'
+        # （1）确定数据的提取日期，即start_date；如果不进行数据冲刷，且存储路径该结果存在，则调整start_date
+        if (resave == False) & (os.path.exists(address + data_name + '.h5') == True):
+            try:
+                old_data = pd.read_hdf(address + data_name + '.h5', data_name)
+                start_date = str(old_data.index[-1])
+            except:
+                print(data_name + '数据保存存在问题,重新进行存储')
+                old_data = pd.DataFrame()
+                start_date = start
+        else:
+            old_data = pd.DataFrame()
+            start_date = start
+        # （2）获取信息
+        if int(start_date) < int(end_date):
+            sql = r"select %s from wind.%s a where a.S_INFO_EXCHMARKETNAME != 'MHS' and a.TRADE_DT >= '%s'" \
+                  % (trade_factor_str, trade_table,str(start_date))
+            data_values = pd.read_sql(sql, con)
+
+            save_data = data_values.pivot_table(values=data_name, index='TRADE_DT', columns='S_INFO_WINDCODE')
+            # 转换数据格式
+            save_data.index, save_data.columns = save_data.index.astype(int), pd.Series(save_data.columns).apply(lambda x: trans_windcode2int(x))
+
+            save_data = pd.concat([old_data, save_data])
+            save_data = save_data[~save_data.index.duplicated('last')]
+
+            if save_data.index[0] > 20160629:
+                print('数据开始日期为：' + str(save_data.index[0]))
+                print(data_name + '数据存在问题，需要检查！！！！！！！！！！！！！！！！！！！！！！！')
+            # 将该输出到保存地址中
+            save_data = save_data.reindex(get_date_range(save_data.index[0], save_data.index[-1])).ffill()
+            if data_name == 'S_QUANTITY':
+                save_name = 'north_quantity'
+                save_data.to_hdf('%s/%s.h5' % (address, save_name), save_name, format='t')
+
+                volume_in = save_data.diff(1)
+                vwap = get_daily_1factor('vwap',date_list=volume_in.index.to_list(), code_list=volume_in.columns.to_list())
+                amt_in = volume_in * vwap
+                volume_in.to_hdf('%s/%s.h5' % (address, 'north_volume_in'), 'north_volume_in', format='t')
+                amt_in.to_hdf('%s/%s.h5' % (address, 'north_amt_in'), 'north_amt_in', format='t')
+
+            elif data_name == 'S_RATIO':
+                save_name = 'north_ratio'
+                save_data.to_hdf('%s/%s.h5' % (address, save_name), save_name, format='t')
+
+            print(data_name + '存储完毕')
+        else:
+            print(data_name + '今日数据已更新')
+        gc.collect()
 
 
 if __name__ == '__main__':
@@ -522,16 +608,17 @@ if __name__ == '__main__':
 
     from dataApi.tradeDate import _check_input_date, get_pre_trade_date, get_date_range
     from dataApi.stockList import *
-
+    from dataApi.getData import *
+    resave = False
     now_time = time.time()
-    get_stock_factor(save_stockdaily_dict)  # 保存个股日品信息
-    get_bench_factor(save_benchdaily_dict)    # 保存指数日频信息
-    get_ind_factor(save_inddaily_dict)      # 保存行业日频信息
+    get_stock_factor(save_stockdaily_dict,resave=resave)  # 保存个股日频信息
+    get_bench_factor(save_benchdaily_dict,resave=resave)    # 保存指数日频信息
+    get_ind_factor(save_inddaily_dict,resave=resave)      # 保存行业日频信息
     print('基础数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
-    get_bench_weight()
+    get_bench_weight(resave=resave)
     get_ind_weight()
     print('指数权重数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
-
+    store_north_data(address = base_address + 'daily/',start = base_date, resave=resave)
     get_other_factor()
     print('全部数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
 
