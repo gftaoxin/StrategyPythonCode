@@ -4,7 +4,7 @@ from dataApi.getData import *
 from dataApi.indName import *
 from dataApi.stockList import *
 from dataApi.tradeDate import *
-
+import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -47,7 +47,7 @@ def get_modified_ind_mv(date_list=None, code_list=None, ind_type='SW1'):
     code_list = mv.columns.to_list()
 
     ind = get_daily_1factor(ind_type, date_list, code_list)
-    ind_codes = list(get_ind_con(ind_type[:-1],level=int(ind_type[-1])).keys())
+    ind_codes = list(get_real_ind(ind_type[:-1],level=int(ind_type[-1])).keys())
 
     ind_result = np.r_['0,3', tuple(ind == x for x in ind_codes)]
     ind_mv = np.einsum('ijk,jk -> ijk',ind_result,mv)
@@ -56,7 +56,7 @@ def get_modified_ind_mv(date_list=None, code_list=None, ind_type='SW1'):
 
     return np.log(modified_ind_mv).replace([np.inf,-np.inf], np.nan)
 #(4)获取回归系数，和回归残差
-def get_regression(x,y):
+def start_regression(x,y):
 
     lr = LinearRegression(fit_intercept=False)
     lr.fit(x.reshape(-1, 1), y.reshape(-1, 1))  # 拟合
@@ -78,7 +78,7 @@ def get_mv_neutral(df,type='SW1'):
     mv = mv[~np.isnan(df)]
     df = df[~np.isnan(mv)]
 
-    new_df = pd.concat([pd.Series(get_regression(mv.loc[date].dropna().values,df.loc[date].dropna().values)[0],index=df.loc[date].dropna().index).rename(date)
+    new_df = pd.concat([pd.Series(start_regression(mv.loc[date].dropna().values,df.loc[date].dropna().values)[0],index=df.loc[date].dropna().index).rename(date)
                for date in date_list],axis=1).T
 
     return new_df
@@ -90,6 +90,93 @@ def get_ind(ind='SW1',date_list=None):
     ind_code = get_daily_1factor(ind, date_list)
     ind_num = ind_code.T.apply(lambda x:x.value_counts()).T
     return ind_code,ind_num
+# (1)获取实时的申万和中信行业（即根据时间会进行调整）
+def get_real_ind(ind_type='SW',level=1):
+    # 输入：sw,sw2021,CITICS,获取申万和中信对应的指数代码，指数名称
+    level_dict = {1: ['一级行业代码', '一级行业名称'],
+                  2: ['二级行业代码', '二级行业名称'],
+                  3: ['三级行业代码', '三级行业名称']}
+
+    if ind_type == 'SW':
+        ind_name1 = pd.read_excel(base_address + '行业分类.xlsx', sheet_name='SW2021')
+        ind_name2 = pd.read_excel(base_address + '行业分类.xlsx', sheet_name='SW')
+        level = int(level) if type(level) == str else level
+        if type(level) == int:
+            dict_data1 = ind_name1[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+            dict_data2 = ind_name2[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+            dict_data = dict(dict_data2, **dict_data1)
+
+        elif type(level) == list:
+            dict_data = dict()
+            for l in level:
+                dict_data1 = ind_name1[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].to_dict()
+                dict_data2 = ind_name2[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].to_dict()
+                dict_data = dict(dict_data, **dict_data1)
+                dict_data = dict(dict_data, **dict_data2)
+        else:
+            raise ValueError("Use SW_new must use level as int or str ")
+        return dict_data
+    else:
+        ind_name = pd.read_excel(base_address + '行业分类.xlsx', sheet_name=ind_type)
+        level = int(level) if type(level) == str else level
+        if type(level) == int:
+            dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+        elif type(level) == list:
+            df = pd.Series()
+            for l in level:
+                df = pd.concat(
+                    [df, ind_name[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].drop_duplicates()])
+            dict_data = df.to_dict()
+        else:
+            raise ValueError("level type should be int or list ")
+        return dict_data
+# （2）获取实时该行业是否正在使用
+def get_useful_ind(ind_type,date_list):
+    ind_close = get_daily_1factor('close', date_list=date_list, type=ind_type[:-1])
+    if ind_type[:-1] == 'SW':
+        before_ind = get_ind_con(ind_type[:-1],ind_type[-1])
+        after_ind = get_ind_con(ind_type[:-1]+'2021', ind_type[-1])
+        del_ind = ['801230.SI', '852311', '801231']
+
+        before_ind = set(before_ind.keys()).difference(del_ind)
+        after_ind = set(after_ind.keys()).difference(del_ind)
+
+        ind_useful = pd.concat([ind_close[before_ind].loc[:20211210], ind_close[after_ind].loc[20211213:]])
+    elif ind_type[:-1] == 'CITICS':
+        ind = get_ind_con(ind_type[:-1], ind_type[-1])
+        ind_useful = ind_close[ind]
+
+    ind_useful = ~np.isnan(ind_useful.dropna(how='all',axis=1))
+
+    return ind_useful
+
+# 因子检查：即计算当日的因子，计算当月的因子
+def factor_test(func,start_date,end_date,ind):
+    end_date = int(datetime.datetime.now().strftime('%Y%m%d')) if end_date > int(datetime.datetime.now().strftime('%Y%m%d')) else end_date
+    factor = func(start_date,end_date,ind).astype(float).round(5)
+    factor1 = func(get_pre_trade_date(end_date,200),get_pre_trade_date(end_date,120),ind).astype(float).round(5)
+    factor2 = func(get_pre_trade_date(end_date,120),end_date,ind).astype(float).round(5)
+
+    date_list1,columns1 = factor1.index.to_list(),factor1.columns
+    date_list2,columns2 = factor2.index.to_list(),factor2.columns
+
+    ind_useful = get_useful_ind(ind,get_date_range(start_date,end_date))
+    bad_factor1 = ((factor.loc[date_list1,columns1] == factor1.loc[date_list1,columns1])[ind_useful] == False).sum().sum()
+    bad_factor2 = ((factor.loc[date_list2,columns2] == factor2.loc[date_list2,columns2])[ind_useful] == False).sum().sum()
+
+    if ((factor == np.inf).sum().sum() >0) or ((factor == -np.inf).sum().sum() >0):
+        print('数据存在np.inf,需要检查')
+
+
+    if (bad_factor1 > len(date_list1)) | (bad_factor2 > len(date_list2)):
+        print('数据存在问题，进行代码调整')
+        print(bad_factor1, bad_factor2)
+    else:
+        print('因子无问题')
+        print(bad_factor1,bad_factor2)
+
+    return factor
+
 # 3、将个股因子转换为行业整体因子
 def transfactor_code2ind(df,ind='SW1', weight='same' ,way = 'mean'):
     df = df.dropna(how='all')
@@ -98,9 +185,7 @@ def transfactor_code2ind(df,ind='SW1', weight='same' ,way = 'mean'):
     ind_code,ind_num = get_ind(ind=ind, date_list=date_list)
     inde_name = list(get_ind_con(ind[:-1],int(ind[-1])).keys())
 
-
-
-    get_daily_1factor('pre_close',date_list=date_list,code_list=inde_name,type='SW')
+    get_daily_1factor('pre_close',date_list=date_list,code_list=inde_name,type=ind[:-1])
     # weight为加权方式：即same为行业内个股等全，mv为市值加权
     if weight == 'same':
         weighted = pd.DataFrame(1, index = date_list, columns=code_list)
@@ -130,13 +215,13 @@ def trans_list_from_middle(need_list):
 
     return new_list
 # 入库因子的判断和比较
-def factor_in_box(factor,factor_name, ind='SW1',fee=0.04, save_path = 'E:/FactorTest/useful_factor/',factor_path = 'E:/FactorTest/'):
+def factor_in_box(factor,factor_name, ind='SW1',fee=0.001, save_path = 'E:/FactorTest/useful_factor/',factor_path = 'E:/FactorTest/'):
     factor = factor.dropna(how='all')
 
     test_start_date = max(20140101, factor.index[0])
-    test_end_date = min(20211130, factor.index[-1])
+    test_end_date = min(20221130, factor.index[-1])
     self = FactorTest(test_start_date=test_start_date, test_end_date=test_end_date, ind=ind, day=20,fee=fee)
-    box_in, test_result, value_result = self.cal_factor_result(factor, save_path =None)
+    box_in, test_result0, value_result0, ic0, rank_ic0 = self.cal_factor_result(factor, save_path ='E:/FactorTest/')
 
     if box_in == True:
         print('因子通过测试',box_in)
@@ -144,18 +229,22 @@ def factor_in_box(factor,factor_name, ind='SW1',fee=0.04, save_path = 'E:/Factor
         flag = 1
         for old_factor in factor_list:
             other_factor = pd.read_pickle(save_path + old_factor + '.pkl')
-            corr = factor.corrwith(other_factor,axis=1)
+            date_list = sorted(list(set(other_factor.index).intersection(set(factor.index))))
+            other_factor = other_factor.loc[date_list]
+            test_factor = factor.loc[date_list]
+            corr = test_factor.corrwith(other_factor,axis=1)
             if abs(corr.mean()) > 0.6:
                 print(corr.mean())
+                box_in, test_result, value_result, ic, rank_ic = self.cal_factor_result(test_factor, save_path=None)
                 # 如果相关系数过高，则看多头收益率和多空收益率谁大
-                box_in1, test_result1, value_result1 = self.cal_factor_result(other_factor, save_path=None)
+                box_in1, test_result1, value_result1,ic1, rank_ic1 = self.cal_factor_result(other_factor, save_path=None)
                 # 如果ic/rank_ic,icir/rank_icir,top_return,excess_return,ls_return五个有三个以上优秀，就选新的
-                Better_IC = (test_result.loc[['ic','rank_ic'],'all'] > test_result1.loc[['ic','rank_ic'],'all']).max() == True
-                Better_ICIR = (test_result.loc[['ICIR','rank_ICIR'],'all'] >test_result1.loc[['ICIR','rank_ICIR'],'all']).max() == True
+                Better_IC = abs(test_result.loc[['ic','rank_ic'],'all'].mean()) > abs(test_result1.loc[['ic','rank_ic'],'all'].mean())
+                Better_ICIR = abs(test_result.loc[['ICIR','rank_ICIR'],'all'].mean()) > abs(test_result1.loc[['ICIR','rank_ICIR'],'all'].mean())
                 Better_Return = (test_result.loc[['top_return','excess_return','ls_return'],'all'] >
                               test_result1.loc[['top_return','excess_return','ls_return'],'all']).sum()
 
-                if (Better_IC + Better_ICIR +Better_Return) <3:
+                if ((Better_IC + Better_ICIR) == 0) | ((Better_IC + Better_ICIR +Better_Return) <3):
                     flag = 0
                     print('测试因子和%s因子相关性过高,且表现不佳，予以删除' % old_factor )
                     break
@@ -170,11 +259,10 @@ def factor_in_box(factor,factor_name, ind='SW1',fee=0.04, save_path = 'E:/Factor
     else:
         print('因子未通过测试', box_in)
 
-    return test_result, value_result
-
+    return test_result0, value_result0, ic0, rank_ic0
 
 class FactorTest(object):
-    def __init__(self,day=20,ind='SW1',test_start_date = 20150101,test_end_date = 20201231,fee=0.04):
+    def __init__(self,day=20,ind='SW1',test_start_date = 20150101,test_end_date = 20201231,fee=0.001):
         self.ind = ind
         self.day = day
         self.fee = fee
@@ -197,18 +285,22 @@ class FactorTest(object):
         self.trade_date_list = trade_date_list
 
         # 对标的收益率
-        code_list = get_ind_con(ind[:-1],int(ind[-1]))
+        code_list = get_real_ind(ind[:-1],int(ind[-1]))
         self.ind_list = code_list
         ind_open = get_daily_1factor('open', date_list=get_date_range(test_start_date, get_pre_trade_date(test_end_date,offset=-30)), code_list=code_list,type=ind[:-1])
+        ind_close = get_daily_1factor('close', date_list=get_date_range(test_start_date,get_pre_trade_date(test_end_date, offset=-30)),code_list=code_list, type=ind[:-1])
 
         bench_open = get_daily_1factor('open',date_list=get_date_range(test_start_date, get_pre_trade_date(test_end_date,offset=-30)),
                                        code_list=['HS300','ZZ500','wind_A'],type='bench')
-
+        self.ind_useful = get_useful_ind(ind, test_date_list)
         self.ind_open = ind_open
+        self.ind_close = ind_close
         self.bench_open = bench_open
 
         ind_trade_profit = ind_open.loc[trade_date_list].pct_change()
         ind_trade_profit.index = pd.Series(ind_trade_profit.index).apply(lambda x: get_pre_trade_date(x, offset=1))
+        ind_trade_profit = ind_trade_profit[self.ind_useful]
+
 
         bench_trade_profit = bench_open.loc[trade_date_list].pct_change()
         bench_trade_profit.index = pd.Series(bench_trade_profit.index).apply(lambda x: get_pre_trade_date(x, offset=1))
@@ -281,9 +373,8 @@ class FactorTest(object):
     # 因子测试
     def factor_test(self,new_factor,group=5):
         #test_factor.columns = pd.Series(test_factor.columns).apply(lambda x:self.ind_list[x])
-
+        period_date_list = sorted(list(set(new_factor.index).intersection(self.period_date_list)))
         test_factor = self.deal_factor(new_factor)
-        #test_factor = new_factor.copy()
         # 计算1：ic，rank_ic
         ic = test_factor.shift(1).corrwith(self.ind_trade_profit, axis=1)
         rank_ic = test_factor.shift(1).rank(pct=True, axis=1).corrwith(self.ind_trade_profit.rank(pct=True, axis=1), axis=1)
@@ -293,23 +384,22 @@ class FactorTest(object):
 
         top_ind, bottom_ind = group_dict[1], group_dict[group]
         top_turn = (top_ind.astype(int).diff() == 1).sum(axis=1) / top_ind.sum(axis=1)  # 头部的换手率
-        top_pct = self.ind_trade_profit[top_ind.shift(1)].loc[self.period_date_list]                   # 头部的周期收益率
+        top_pct = self.ind_trade_profit[top_ind.shift(1)].loc[period_date_list]                   # 头部的周期收益率
         bottom_turn = (bottom_ind.astype(int).diff() == 1).sum(axis=1) / bottom_ind.sum(axis=1) # 尾部换手率
-        bottom_pct = self.ind_trade_profit[bottom_ind.shift(1)].loc[self.period_date_list]             # 尾部的周期收益率
+        bottom_pct = self.ind_trade_profit[bottom_ind.shift(1)].loc[period_date_list]             # 尾部的周期收益率
 
         # 获取多头，多空，benchmarK收益率
         top_pct_mean, bottom_pct_mean = (1 + top_pct.mean(axis=1))* (1 - top_turn * self.fee) -1, \
                                         (1 + bottom_pct.mean(axis=1))* (1 - bottom_turn * self.fee) -1 # 头部收益率，尾部收益率
-        benchmark_pct = self.ind_trade_profit.loc[self.period_date_list].mean(axis=1) # 基准收益率
+        benchmark_pct = self.ind_trade_profit.loc[period_date_list].mean(axis=1) # 基准收益率
         top_net_value, bottom_net_value = (1 + top_pct_mean).cumprod(), (1 + bottom_pct_mean).cumprod() # 头部净值， 尾部净值
         benchmark_net_value =  (1 + benchmark_pct).cumprod() # 基准净值
 
         excess_pct_mean = top_pct_mean - benchmark_pct   # 超额收益
         ls_pct_mean = top_pct_mean - bottom_pct_mean     # 多空收益
 
-
         # 输出结果1：分阶段统计数据
-        year_list = sorted(list(set([x // 10000 for x in self.period_date_list[1:]])))
+        year_list = sorted(list(set([x // 10000 for x in period_date_list[1:]])))
         test_result = pd.DataFrame(index=['ic', 'rank_ic', 'ICIR', 'rank_ICIR',
                                           'top_return', 'top_sharpe', 'top_turn', 'top_winrate', 'top_wlratio',
                                           'top_maxdown',
@@ -380,6 +470,11 @@ class FactorTest(object):
 
     # 开始进行因子测试
     def cal_factor_result(self,factor,save_path =None,factor_name = 'test_factor'):
+        factor = factor[self.ind_useful]
+        # 需要剔除的行业：综合
+        need_del_list = ['801230.SI', '852311', '801231']
+        factor = factor[factor.columns.difference(need_del_list)]
+
         factor = factor.reindex(self.period_date_list).dropna(how='all')  # 获取因子值
         test_result, value_result, all_net_values, ic, rank_ic = self.factor_test(factor)
         # 写入文件
@@ -406,7 +501,7 @@ class FactorTest(object):
                 (test_result.loc['ic'].drop('all'))) > 0.5
 
             rank_ic_direction = test_result.loc['rank_ic', 'all'] > 0
-            rank_day_direction = ((test_result.loc['rank_ic'].drop('all') > 0) == ic_direction).sum() / len(
+            rank_day_direction = ((test_result.loc['rank_ic'].drop('all') > 0) == rank_ic_direction).sum() / len(
                 (test_result.loc['ic'].drop('all'))) > 0.5
 
             if (day_direction | rank_day_direction):
@@ -419,15 +514,15 @@ class FactorTest(object):
                             (((test_result.loc[['excess_return', 'ls_return']].drop('all', axis=1) > 0).sum(axis=1) / (
                             len(test_result.columns) - 1)).max() > 0.5):
                         # 5、胜率必须超过50%
-                        if test_result.loc[['top_winrate', 'excess_winrate'], 'all'].min() > 0.5:
+                        if test_result.loc[['ls_winrate', 'excess_winrate'], 'all'].min() > 0.5:
                             # 6、icir的绝对值必须＞1
-                            if abs(test_result.loc[['ICIR','rank_ICIR'], 'all'].min()) > 0.5:
+                            if abs(test_result.loc[['ICIR','rank_ICIR'], 'all'].max()) > 0.5:
                                 # 7、分组收益比率是第一组≥第2,3,4组≥5组
-                                if ((value_result.loc['annual_return', 1] - value_result.loc['annual_return', [2, 3, 4]] > 0).sum() >=2) & \
+                                if ((value_result.loc['annual_return', 1] - value_result.loc['annual_return', [2, 3, 4]] > 0).sum() >=2) | \
                                     ((value_result.loc['annual_return', [2, 3, 4]] - value_result.loc['annual_return', 5] > 0).sum() >= 2):
-                                    print(True)
-                                    return True, test_result, value_result
-        return False, test_result, value_result
+                                    return True, test_result, value_result, ic, rank_ic
+
+        return False, test_result, value_result, ic, rank_ic
 
     ############################################# 策略测试部分 ########################################################
     def single_factor_test(self,test_factor,fee):

@@ -178,7 +178,6 @@ class Daily_Market_Sentiment(object):
 
         return all_result
         '''
-
     ######################### 市场情绪的刻画 ################################
     # 1、投机氛围：即涨停情况，炸板情况，连板情况，高标特征
     def cal_speculation(self, start_date, end_date, rol_short = 120, rol_long = 480):
@@ -358,6 +357,34 @@ class Daily_Market_Sentiment(object):
 
         sentiment = self.whole_sentiment.copy()
         sentiment[['情绪得分', '投机情绪得分', '龙头情绪得分', '赚钱效应']] = sentiment[['情绪得分', '投机情绪得分', '龙头情绪得分', '赚钱效应']].rolling(5).mean()
+        '''
+        # 情绪处于极端位置
+        sentiment['position'] = (sentiment['情绪得分'] <= 2.5) * 1 + (sentiment['情绪得分'] >= 8) * -1
+        # 情绪和指数发生背离时：
+        # 情绪回落条件1、情绪从近20日最高点回落＞2分
+        # 情绪回落条件2、情绪从必须是连续回落，不能是大幅波动
+        # 情绪回落条件3：该点必须是情绪的低点，不能反弹了上去
+        # 情绪回落条件4：指数当天不能出现大跌（即涨幅必须＞-0.5%）
+        # 情绪回落条件5：如果情绪在近20日内出现了从低点大幅度向转暖，那么回落幅度必须大于转暖幅度
+        sentiment_highest_time = sentiment['情绪得分'].rolling(20).apply(lambda x: int(x.idxmax()))
+        sentiment_down_num = sentiment['情绪得分'].rolling(20).max() - sentiment['情绪得分']
+        sentiment_position = pd.DataFrame(index=get_date_range(start_date,end_date),columns=['sentiment_down','index_down'])
+        for date in sentiment_position.index:
+            if  sentiment_down_num.loc[date] >= 2: # 条件1
+                high_position = sentiment_highest_time.loc[date] # 获取高点
+                down_rate = sentiment['情绪得分'].loc[high_position:date].diff().iloc[1:] <= 0 # 有多少天是情绪走弱的
+                down_position = sentiment['情绪得分'].loc[:date].iloc[-20:].rank().loc[date] # 当前情绪得分在近20日内是不是低点
+                index_pct = self.index_close.loc[date,'CYBZ'] / self.index_close.loc[get_pre_trade_date(date),'CYBZ'] - 1
+
+                if (np.isnan(high_position) == False) & (down_position <= 5) & (down_rate.sum() / len(down_rate) > 0.8) & \
+                        (index_pct > -0.005) & (sentiment['情绪得分'].loc[:date].iloc[-20:].min() >=2.5):
+                    sentiment_position.loc[date,'sentiment_down'] = sentiment_down_num.loc[date]
+                    sentiment_position.loc[date, 'index_down'] = sentiment.loc[date,'CYBZ'] / sentiment.loc[high_position,'CYBZ'] -1
+
+        index_pct = sentiment['CYBZ'] / sentiment['CYBZ'].rolling(20).max() - 1
+        a = pd.concat([sentiment_position, sentiment['情绪得分']], axis=1)
+        '''
+
         sentiment = sentiment.loc[start_date:end_date]
         sentiment.index = sentiment.index.astype(str)
 
@@ -395,10 +422,13 @@ class Daily_Market_Sentiment(object):
         plt.savefig(self.save_path + str(end_date)+'市场情绪.png')
         plt.show()
 
-
-start_date, end_date = 20160101, 20220919
+start_date, end_date = 20160101, 20220928
 save_path = base_address + 'MarketMonitor/'
 # start_date,end_date = 20200101, int(datetime.datetime.now().strftime('%Y%m%d'))
 self=Daily_Market_Sentiment(start_date,end_date=end_date)
 self.cal_sentiment()
-self.save_Result(20220101,end_date)   #保存
+self.save_Result(20210101,20220928)   #保存
+
+
+
+

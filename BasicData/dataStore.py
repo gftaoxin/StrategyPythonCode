@@ -1,6 +1,6 @@
 import os,datetime
-import pickle
-import time
+import pickle,time
+from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import cx_Oracle
@@ -233,6 +233,10 @@ def get_bench_weight(start = base_date,resave = False):
             # 将该输出到保存地址中
             save_data = save_data.reindex(get_date_range(base_date, int(end_date)))
             save_data.to_hdf('%s/%s.h5' % (save_path, index_name), index_name, format='t')
+            print(index_name + '存储完毕')
+        else:
+            print(index_name + '今日数据已更新')
+
 # (2)获取行业成分股信息
 def get_ind_weight(start= base_date):
     save_path = base_address + 'daily/'
@@ -250,21 +254,35 @@ def get_ind_weight(start= base_date):
     SW_data['S_CON_OUTDATE'] = SW_data['S_CON_OUTDATE'].apply(pd.to_numeric,errors='ignore')
     SW_data['S_CON_INDATE'] = SW_data['S_CON_INDATE'].apply(pd.to_numeric,errors='ignore')
 
-    for sw_type in ['SW2021','SW']:
-        for level in (1,2,3):
-            ind_name = get_ind_con(sw_type,level).keys()
-            SW_level = SW_data[SW_data['S_INFO_WINDCODE'].isin(ind_name)]
-            SW_code = pd.DataFrame(index=date_list,columns=code_list)
-            for i in SW_level.index:
-                code = SW_level.loc[i,'S_CON_WINDCODE']
-                ind_start_date = SW_level.loc[i, 'S_CON_INDATE']
-                ind_end_date = SW_level.loc[i, 'S_CON_OUTDATE']
-                ind = SW_level.loc[i,'S_INFO_WINDCODE']
+    SW_code = pd.DataFrame(index=date_list, columns=code_list)
+    for level in (1,2,3):
+        ind_name = get_ind_con('SW',level).keys()
+        SW_level = SW_data[SW_data['S_INFO_WINDCODE'].isin(ind_name)]
+        SW_code1 = pd.DataFrame(index=date_list, columns=code_list)
+        for i in SW_level.index:
+            code = SW_level.loc[i,'S_CON_WINDCODE']
+            ind_start_date = SW_level.loc[i, 'S_CON_INDATE']
+            ind_end_date = SW_level.loc[i, 'S_CON_OUTDATE']
+            ind = SW_level.loc[i,'S_INFO_WINDCODE']
 
-                SW_code.loc[ind_start_date:ind_end_date,code] = ind
+            SW_code1.loc[ind_start_date:ind_end_date, code] = ind
 
-            SW_code.to_hdf('%s/%s%s.h5' % (save_path, sw_type,str(level)), sw_type+str(level), format='t')
+        ind_name = get_ind_con('SW2021', level).keys()
+        SW_level = SW_data[SW_data['S_INFO_WINDCODE'].isin(ind_name)]
+        SW_code2 = pd.DataFrame(index=date_list, columns=code_list)
+        for i in SW_level.index:
+            code = SW_level.loc[i, 'S_CON_WINDCODE']
+            ind_start_date = SW_level.loc[i, 'S_CON_INDATE']
+            ind_end_date = SW_level.loc[i, 'S_CON_OUTDATE']
+            ind = SW_level.loc[i, 'S_INFO_WINDCODE']
 
+            SW_code2.loc[ind_start_date:ind_end_date,code] = ind
+
+        SW_code.loc[:20211210] = SW_code1.loc[:20211210]
+        SW_code.loc[20211213:] = SW_code2.loc[20211213:]
+
+        SW_code.to_hdf('%s/%s%s.h5' % (save_path, 'SW',str(level)), 'SW'+str(level), format='t')
+        print('SW存储完成')
     # 分别获取中信一级行业，中信二级行业的个股归属情况
     for level in [1,2]:
         CITICS_table = 'AIndexMembersCITICS' if level==1 else 'AIndexMembersCITICS2'
@@ -291,7 +309,7 @@ def get_ind_weight(start= base_date):
             CITICS_code.loc[ind_start_date:ind_end_date, code] = ind
 
         CITICS_code.to_hdf('%s/CITICS%s.h5' % (save_path, str(level)), 'CITICS' + str(level), format='t')
-
+        print('CITICS存储完成')
 # 2、储存指数基础数据：把所有字符串日期，改为数字日期，初始日期变成特定日期20100101
 save_benchdaily_dict = {
     'AIndexEODPrices': {'open': 'S_DQ_OPEN', 'high': 'S_DQ_HIGH', 'low': 'S_DQ_LOW','close': 'S_DQ_CLOSE',
@@ -429,7 +447,6 @@ def get_ind_factor(save_data_dict, start= base_date, resave=False):
                 print(data_name +'今日数据已更新')
 
             gc.collect()
-
 
 # 4、储存必要的基础数据的衍生数据
 def get_other_factor():
@@ -600,6 +617,24 @@ def store_north_data(address, start = base_date, resave=False):
         else:
             print(data_name + '今日数据已更新')
         gc.collect()
+# (6)存储大中小单相关数据
+def MoneyFlow(address = base_address+'MoneyFlow/',start = base_date):
+    date_list = get_date_range(start)
+    saved_date_list = sorted([x[:-4] for x in os.listdir(address)])
+    need_save_list = sorted(list(set(date_list).difference(saved_date_list[:-1])))
+    for date in tqdm(need_save_list):
+        table = 'AShareMoneyFlow'
+        sql = r"select * from wind.%s a where a.TRADE_DT = '%s'" % (table, date)
+        data_values = pd.read_sql(sql, con)
+        no_need_list = ['OBJECT_ID','OPMODE','OPDATE']
+        factor_list = set(data_values.columns).difference(no_need_list)
+        data_values = data_values[factor_list].fillna(np.nan).dropna(how='all',axis=1)
+        data_values['S_INFO_WINDCODE'] = data_values['S_INFO_WINDCODE'].apply(lambda x:trans_windcode2int(x))
+        data_values = data_values.set_index('S_INFO_WINDCODE')
+
+        data_values.to_hdf(address + str(date)+'.hdf',key = str(date))
+
+
 
 
 if __name__ == '__main__':
@@ -620,6 +655,7 @@ if __name__ == '__main__':
     print('指数权重数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
     store_north_data(address = base_address + 'daily/',start = base_date, resave=resave)
     get_other_factor()
+    MoneyFlow()
     print('全部数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
 
 

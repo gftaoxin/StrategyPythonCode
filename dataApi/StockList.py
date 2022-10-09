@@ -195,20 +195,41 @@ def clean_stock_list(stock_list='ALL', no_ST=True, least_live_days=240, no_pause
 
 
 # 函数4：获取申万和中信行业代码对应的名称
-def get_ind_con(ind_type='SW2021',level=1):
+def get_ind_con(ind_type='sw',level=1):
     # 输入：sw,sw2021,CITICS,获取申万和中信对应的指数代码，指数名称
     level_dict = {1: ['一级行业代码', '一级行业名称'],
                   2: ['二级行业代码', '二级行业名称'],
                   3: ['三级行业代码', '三级行业名称']}
-    ind_name = pd.read_excel(base_address + '行业分类.xlsx',sheet_name=ind_type)
-    level = int(level) if type(level) == str else level
-    if type(level) == int:
-        dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
-    elif type(level) == list:
-        df = pd.Series()
-        for l in level:
-            df = pd.concat([df,ind_name[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].drop_duplicates()])
-        dict_data = df.to_dict()
+
+    if ind_type == 'sw_all':
+        ind_name1 = pd.read_excel(base_address + '行业分类.xlsx', sheet_name='SW2021')
+        ind_name2 = pd.read_excel(base_address + '行业分类.xlsx', sheet_name='SW')
+        level = int(level) if type(level) == str else level
+        if type(level) == int:
+            dict_data1 = ind_name1[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+            dict_data2 = ind_name2[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+            dict_data = dict(dict_data2, **dict_data1)
+
+        elif type(level) == list:
+            dict_data = dict()
+            for l in level:
+                dict_data1 = ind_name1[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].to_dict()
+                dict_data2 = ind_name2[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].to_dict()
+                dict_data = dict(dict_data, **dict_data1)
+                dict_data = dict(dict_data, **dict_data2)
+        else:
+            raise ValueError("Use SW_new must use level as int or str ")
+        return dict_data
     else:
-        raise ValueError("level type should be int or list ")
-    return dict_data
+        ind_name = pd.read_excel(base_address + '行业分类.xlsx',sheet_name=ind_type)
+        level = int(level) if type(level) == str else level
+        if type(level) == int:
+            dict_data = ind_name[level_dict[level]].set_index(level_dict[level][0])[level_dict[level][1]].to_dict()
+        elif type(level) == list:
+            df = pd.Series()
+            for l in level:
+                df = pd.concat([df,ind_name[level_dict[l]].set_index(level_dict[l][0])[level_dict[l][1]].drop_duplicates()])
+            dict_data = df.to_dict()
+        else:
+            raise ValueError("level type should be int or list ")
+        return dict_data

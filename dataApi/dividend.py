@@ -1,5 +1,7 @@
 import cx_Oracle,re
 import pandas as pd
+
+import getData
 from dataApi.stockList import *
 con = cx_Oracle.connect("windquery", "wind2010query", "10.2.89.132:1521/winddb", threaded=True) # 写入信号
 
@@ -24,4 +26,3 @@ def getEXRightDividend():
     EXRightDividend['code'] = EXRightDividend['code'].map(lambda x: trans_windcode2int(x))
     EXRightDividend = EXRightDividend.sort_values('date')
     return EXRightDividend
-

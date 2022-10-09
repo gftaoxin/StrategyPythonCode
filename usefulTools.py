@@ -37,23 +37,16 @@ def get_ind_neutral(df, ind_type='SW'):
 
     return df
 
-
 # 函数1：获取时序分位数
 def rollingRankArgSort(array):
     return (array.argsort().argsort() + 1)[-1]/ len(array)
 
-#@numba.jit(nopython=True)
 def ts_rank(df, rol_day='history'):
     if rol_day == 'history':
         df = df.expanding().apply(lambda x: rollingRankArgSort(x.values))
     else:
         df = df.rolling(rol_day, min_periods=60).apply(lambda x: rollingRankArgSort(x.values))
     return df
-
-
-
-
-
 
 # 函数2：获取两个dataframe相关系数
 def array_coef(x, y):

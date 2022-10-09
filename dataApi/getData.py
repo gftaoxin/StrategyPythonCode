@@ -3,6 +3,7 @@ import pickle
 import pandas as pd
 import numpy as np
 import cx_Oracle,re
+from dataApi.tradeDate import *
 from dataApi.stockList import trans_windcode2int, trans_int2windcode, get_code_list
 from dataApi.indName import sw_level1, citics_level1
 from dataApi.tradeDate import get_trade_date_interval, trans_datetime2int, trans_int2datetime, get_recent_trade_date, \
@@ -127,7 +128,9 @@ def _trans_financial2fixed_date(date):
         year += 1
     else:
         raise ValueError("date must be financial report date")
-    return int(year * 10000 + _md)
+
+
+    return get_recent_trade_date(year * 10000 + _md)
 
 # 该调用方法只适合有报告期的财务数据：符合条件的有：且该数据对应的是报告期（和使用周期存在差异）
 # 中国A股资产负债表[AShareBalanceSheet]，中国A股利润表[AShareIncome]，中国A股现金流量表[AShareCashFlow]，中国A股业绩快报[AShareProfitExpress]，
@@ -146,22 +149,34 @@ def get_quarter_1factor(factor,table, report_type = '408001000',code_list=None, 
 
     begin,end = int(date_list[0]), int(date_list[-1])
 
-    factor_str = factor + ',REPORT_PERIOD,S_INFO_WINDCODE,STATEMENT_TYPE'
     if table in report_type_list:
+        factor_str = factor + ',REPORT_PERIOD,S_INFO_WINDCODE,STATEMENT_TYPE'
         sql = r"select %s from wind.%s a where a.REPORT_PERIOD >= '%s' and a.STATEMENT_TYPE = '%s'" % (factor_str, table,str(begin),report_type)
     else:
+        factor_str = factor + ',REPORT_PERIOD,S_INFO_WINDCODE'
         sql = r"select %s from wind.%s a where a.REPORT_PERIOD >= '%s'" % (factor_str, table,str(begin))
-    data_values = pd.read_sql(sql, con)
 
+    data_values = pd.read_sql(sql, con)
+    data_values = data_values[data_values['S_INFO_WINDCODE'].isin(code_list)]
+    if len(data_values) == 0:
+        print('该表为空')
+        return data_values
     data_values = data_values.pivot_table(index='REPORT_PERIOD',columns='S_INFO_WINDCODE',values=factor)
     data_values.index = data_values.index.map(int)
     data_values = data_values.reindex(columns=code_list).loc[begin:end]
     data_values.columns = data_values.columns.map(trans_windcode2int)
 
-    return data_values.dropna(how='all')
+    new_report_dates=[]
+    for x in report_dates:
+        if (x > int(date_list[0])) & (x < int(date_list[-1])):
+            new_report_dates.append(x)
+
+    data_values = data_values.reindex(new_report_dates)
+
+    return data_values
 
 # 获取单个季度的财财报指标，计算ttm,yoy,gog等指标（主要为利润表和现金流量表）
-def get_single_quarter(factor, table, report_type = '408002000',code_list=None, date_list=None):
+def get_single_quarter(factor, table, report_type = '408002000', code_list=None, date_list=None):
 
     if code_list != None:
         code_list = [trans_int2windcode(x) for x in code_list]
@@ -170,7 +185,7 @@ def get_single_quarter(factor, table, report_type = '408002000',code_list=None, 
     #df_sig = df.diff()
     #df_sig[::4] = df[::4]  如果获取的是最新的数据，则需要把每一年的第一个季度结果保留，不做diff
     if date_list != None:
-        df = df.reindex(date_list)
+        df = df.loc[date_list[0]:date_list[-1]].sort_index()
     return df
 
 def get_ttm_quarter(factor, table, report_type='408002000', code_list=None, date_list=None):
@@ -181,7 +196,7 @@ def get_ttm_quarter(factor, table, report_type='408002000', code_list=None, date
     df = get_single_quarter(factor, table, report_type, code_list=code_list)
     df_ttm = df.rolling(4).sum().dropna(how='all')
     if date_list != None:
-        df_ttm = df_ttm.reindex(date_list)
+        df_ttm =  df.loc[date_list[0]:date_list[-1]].sort_index()
     return df_ttm
 
 def get_qoq(df):
@@ -198,11 +213,10 @@ def get_yoy(df):
 
 # 使用固定日期将季度数据填充为日度数据：同时由于年报和第二年的一季度报同为4月30日更新，此时选择first为保留年报，选择last为一季报
 def fill_quarter2daily_by_fixed_date(df, keep = 'last'):
-
     _df = df.copy().sort_index()
     _df.index = _df.index.map(_trans_financial2fixed_date)
     _df = _df[~_df.index.duplicated(keep=keep)].replace(np.nan, np.inf)
-    _df = _df.reindex(get_date_range(_df.index[0])).ffill().replace(np.inf, np.nan)
+    _df = _df.reindex(get_date_range(get_recent_trade_date(_df.index[0]))).ffill().replace(np.inf, np.nan)
     return _df
 
 def fill_quarter2daily_by_issue_date(df, table, report_type, keep = 'last'):
@@ -226,10 +240,10 @@ def fill_quarter2daily_by_issue_date(df, table, report_type, keep = 'last'):
     # 为了处理年报和一季报的问题，进行调整
     if keep == 'first': # 保留年报
         _df = _df[(_df['mddate']%10000 != 331)].replace(np.inf,np.nan)
-    if keep == 'last':
+    elif keep == 'last':
         _df = _df[(_df['mddate'] % 10000 != 1231)].replace(np.inf,np.nan)
-
-    _df = _df.pivot('date', 'code', 0)
+    else:
+        _df = _df.pivot('date', 'code', 0)
 
     _df = _df.reindex(get_date_range(_df.index[0])).ffill().replace(np.inf,np.nan)
     return _df
@@ -240,7 +254,6 @@ def fill_quarter2daily_by_issue_date(df, table, report_type, keep = 'last'):
 
 
 # 3、月度数据：当月数据，于下月20日对应的最近交易日才可取用，即延后半个月
-
 
 def get_EBD_data(date_list = None ,fre = 'd',weight=0.5):
     tables = 'GFZQEDB'
@@ -302,8 +315,6 @@ def get_EBD_data(date_list = None ,fre = 'd',weight=0.5):
         save_data1 = save_data1.replace(np.nan, np.inf).reindex(date_list).ffill().replace(np.inf, np.nan)
 
     return save_data1
-
-
 
 
 
