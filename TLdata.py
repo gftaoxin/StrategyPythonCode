@@ -79,7 +79,7 @@ class Client:
 
 self = Client()
 self.init('9597973eb7038839a12e4763075c70d62c6c254652dddb512ea3f08feda4b14d')
-URL = '/api/HKequity/getEquShszStats.json?field=&beginDate=20220801&endDate=20220906&shcID=&shcName=&partyID='
+URL = '/api/HKequity/getEquShszStats.json?field=&beginDate=20170101&endDate=20190101&shcID=&shcName=&partyID='
 code,result = self.getData(path = URL)
 if code == 200:
     print(result.decode('utf-8',errors='replace'))
@@ -89,32 +89,26 @@ if code == 200:
 data_result = pd_data.pivot_table(index='tradeDate',columns='shcName',values='netFlow')
 data_result.index = pd.Series(data_result.index).apply(lambda x:int(x.replace('-','')))
 
-a= pd.Series(data_result.columns).apply(lambda x:'证券' if (('证券' in x) or('SECURITIES' in x)) else
-   '银行' if (('银行' in x) or('BANK' in x)) else x)
+data_result1 = pd_data.pivot_table(index='tradeDate',columns='shcName',values='netFlow')
+data_result1.index = pd.Series(data_result1.index).apply(lambda x:int(x.replace('-','')))
+
+data_result2 = pd_data.pivot_table(index='tradeDate',columns='shcName',values='netFlow')
+data_result2.index = pd.Series(data_result2.index).apply(lambda x:int(x.replace('-','')))
+
+data_result.columns = pd.Series(data_result.columns).apply(lambda x: '银行' if (('银行' in x) or('BANK' in x)) else '证券')
 
 
-a.sort_values()
 
 
-x = '2022-08-01'
+all_data = pd.read_pickle('E:/ABasicData/north_compnay.pkl')
+all_data.columns = pd.Series(all_data.columns).apply(lambda x: '银行' if (('银行' in x) or('BANK' in x)) else '证券')
 
-
-from io import StringIO
-
-pd.read_csv(StringIO(result[1].decode()),encoding='utf_8_sig')
-StringIO(result[1].decode()).to_csv(encoding='utf_8_sig')
-
-len(result[1])
-
-import httpx
-
-headers = {'header': 'Authorization: Bearer < ac3bed137eaf1c6332c3c8c27f365652cfe77fb4d2804f3dfd5489e1eea9985b >'}
-params = {'protocol': 'https', 'method': 'GET'}
-url = 'https://api.wmcloud.com/data/v1/api/HKequity/getHKshszHold.json?field=&beginDate=20171101&endDate=20171101'
-r = httpx.get(url,headers=headers,params=params)
-r.text
+north_company = pd.concat([all_data['证券'].sum(axis=1).rename('证券'),all_data['银行'].sum(axis=1).rename('银行')],axis=1)
+north_company
 
 
 
 
 
+all_data = pd.concat([data_result2,data_result1,data_result]).sort_index()
+all_data.to_pickle('E:/ABasicData/north_compnay.pkl')

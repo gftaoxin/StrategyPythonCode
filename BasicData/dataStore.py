@@ -329,7 +329,7 @@ def get_bench_factor(save_data_dict, start = base_date, resave = False):
     save_path = base_address + 'dailyBench/'
     # resave = True：进行历史全周期数据的重刷使用  False：添加到该结果的后面
     end_date = str(get_recent_trade_date())  # 1、获取数据都区范围
-    index_dict = {'000001.SH': 'SZZZ', '399001.SZ': 'SZCZ', '399102.SZ': 'CYBZ', '399101.SZ': 'ZXBZ',
+    index_dict = {'000001.SH': 'SZZZ', '399001.SZ': 'SZCZ', '399006.SZ':'CYB','399102.SZ': 'CYBZ', '399101.SZ': 'ZXBZ',
                   '000016.SH': 'SZ50', '000300.SH': 'HS300', '000905.SH': 'ZZ500',
                   '000906.SH': 'ZZ800', '000852.SH': 'ZZ1000',
                   '881001.WI': 'wind_A', '8841388.WI': 'avg_A', }
@@ -619,8 +619,8 @@ def store_north_data(address, start = base_date, resave=False):
         gc.collect()
 # (6)存储大中小单相关数据
 def MoneyFlow(address = base_address+'MoneyFlow/',start = base_date):
-    date_list = get_date_range(start)
-    saved_date_list = sorted([x[:-4] for x in os.listdir(address)])
+    date_list = [str(x) for x in get_date_range(start)]
+    saved_date_list = sorted([x[:-3] for x in os.listdir(address)])
     need_save_list = sorted(list(set(date_list).difference(saved_date_list[:-1])))
     for date in tqdm(need_save_list):
         table = 'AShareMoneyFlow'
@@ -632,7 +632,7 @@ def MoneyFlow(address = base_address+'MoneyFlow/',start = base_date):
         data_values['S_INFO_WINDCODE'] = data_values['S_INFO_WINDCODE'].apply(lambda x:trans_windcode2int(x))
         data_values = data_values.set_index('S_INFO_WINDCODE')
 
-        data_values.to_hdf(address + str(date)+'.hdf',key = str(date))
+        data_values.to_hdf(address + str(date)+'.h5',key = str(date),format='t')
 
 
 
@@ -647,7 +647,7 @@ if __name__ == '__main__':
     resave = False
     now_time = time.time()
     get_stock_factor(save_stockdaily_dict,resave=resave)  # 保存个股日频信息
-    get_bench_factor(save_benchdaily_dict,resave=resave)    # 保存指数日频信息
+    get_bench_factor(save_benchdaily_dict,resave=True)    # 保存指数日频信息
     get_ind_factor(save_inddaily_dict,resave=resave)      # 保存行业日频信息
     print('基础数据更新完毕：',str(round((time.time() - now_time)/60,3))+'分钟')
     get_bench_weight(resave=resave)

@@ -39,6 +39,8 @@ def get_ind_neutral(df, ind_type='SW'):
 
 # 函数1：获取时序分位数
 def rollingRankArgSort(array):
+    if np.isnan(array[-1]) == True:
+        return np.nan
     return (array.argsort().argsort() + 1)[-1]/ len(array)
 
 def ts_rank(df, rol_day='history'):

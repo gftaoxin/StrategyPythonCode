@@ -39,33 +39,11 @@ def Factor_new(start_date,end_date,ind,period='M'):
     code_ind = get_daily_1factor(ind, date_list=date_list).reindex(period_date_list)[stock_pool]
     ind_useful = get_useful_ind(ind, date_list)
     # 指标
-    table = 'AShareMoneyFlow'
-    factor_str = 'S_INFO_WINDCODE,TRADE_DT, BUY_VALUE_EXLARGE_ORDER,SELL_VALUE_EXLARGE_ORDER,' \
-                 'BUY_VALUE_SMALL_ORDER, SELL_VALUE_SMALL_ORDER'
-    big_order_in = pd.DataFrame()
-    big_order_out = pd.DataFrame()
-    small_order_in = pd.DataFrame()
-    small_order_out = pd.DataFrame()
-    for i in tqdm(range(1,len(period_date_list))):
-        start = period_date_list[i-1]
-        end = period_date_list[i]
-        sql = r"select %s from wind.%s a where a.TRADE_DT >= '%s' and a.TRADE_DT <= '%s'" %\
-              (factor_str, table, str(date_list[0]),str(date_list[-1]))
-        data_values = pd.read_sql(sql, con)
+    big_order_buy = get_moneyflow_data('BUY_VALUE_EXLARGE_ORDER',date_list=date_list)
+    big_order_sell = get_moneyflow_data('SELL_VALUE_EXLARGE_ORDER',date_list=date_list)
 
-        big_order_in_month = data_values.pivot_table(values='BUY_VALUE_EXLARGE_ORDER', index='TRADE_DT', columns='S_INFO_WINDCODE')
-        big_order_out_month = data_values.pivot_table(values='SELL_VALUE_EXLARGE_ORDER', index='TRADE_DT', columns='S_INFO_WINDCODE')
-        small_order_in_month = data_values.pivot_table(values='BUY_VALUE_SMALL_ORDER', index='TRADE_DT', columns='S_INFO_WINDCODE')
-        small_order_out_month = data_values.pivot_table(values='SELL_VALUE_SMALL_ORDER', index='TRADE_DT', columns='S_INFO_WINDCODE')
-
-        big_order_in = pd.concat([big_order_in,big_order_in_month])
-        big_order_out = pd.concat([big_order_out, big_order_out_month])
-        small_order_in = pd.concat([small_order_in, small_order_in_month])
-        small_order_out = pd.concat([small_order_out, small_order_out_month])
-
-
-
-
+    small_order_buy = get_moneyflow_data('BUY_VALUE_SMALL_ORDER',date_list=date_list)
+    small_order_sell = get_moneyflow_data('SELL_VALUE_SMALL_ORDER', date_list=date_list)
 
 
 

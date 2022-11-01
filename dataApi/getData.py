@@ -1,4 +1,5 @@
 import datetime as dt
+import os
 import pickle
 import pandas as pd
 import numpy as np
@@ -49,7 +50,7 @@ def get_daily_1day(factor_list, date=None, code_list=None, type='stock', base_da
     df = pd.concat([pd.read_hdf('%s/%s.h5' % (address, factor), factor, start=row, stop=row+1).iloc[0]
                     .rename(factor) for factor in factor_list], axis=1)
     if code_list != None:
-        df = df.reindex(code_list)
+        df = df.reindex(code_list).dropna(how='all')
     if type == 'CITICS' or type == 'SW':
         df.columns =pd.Series(df.columns).apply(lambda x:x[3:])
     return df
@@ -79,7 +80,7 @@ def get_daily_1stock(code, factor_list, date_list=None, type='stock'):
 
     if date_list != None:
         _date_list = [trans_datetime2int(x) for x in date_list]
-        df = df.reindex(_date_list)
+        df = df.reindex(_date_list).dropna(how='all')
     if type == 'CITICS' or type == 'SW':
         df.columns =pd.Series(df.columns).apply(lambda x:x[3:])
 
@@ -107,9 +108,9 @@ def get_daily_1factor(factor, date_list=None, code_list=None, type='stock'):
     df = pd.read_hdf('%s/%s.h5' % (address, factor), factor)
     if date_list != None:
         _date_list = [trans_datetime2int(x) for x in date_list]
-        df = df.reindex(index=_date_list)
+        df = df.reindex(index=_date_list).dropna(how='all')
     if code_list != None:
-        df = df.reindex(columns=code_list)
+        df = df.reindex(columns=code_list).dropna(how='all')
     return df
 
 # 基于财报信息获取数据，这部分不做存储，直接从数据库中导入
@@ -163,7 +164,7 @@ def get_quarter_1factor(factor,table, report_type = '408001000',code_list=None, 
         return data_values
     data_values = data_values.pivot_table(index='REPORT_PERIOD',columns='S_INFO_WINDCODE',values=factor)
     data_values.index = data_values.index.map(int)
-    data_values = data_values.reindex(columns=code_list).loc[begin:end]
+    data_values = data_values.reindex(columns=code_list).loc[begin:end].dropna(how='all')
     data_values.columns = data_values.columns.map(trans_windcode2int)
 
     new_report_dates=[]
@@ -171,7 +172,7 @@ def get_quarter_1factor(factor,table, report_type = '408001000',code_list=None, 
         if (x > int(date_list[0])) & (x < int(date_list[-1])):
             new_report_dates.append(x)
 
-    data_values = data_values.reindex(new_report_dates)
+    data_values = data_values.reindex(new_report_dates).dropna(how='all')
 
     return data_values
 
@@ -251,10 +252,7 @@ def fill_quarter2daily_by_issue_date(df, table, report_type, keep = 'last'):
 
 # 使用宏观数据：注意，宏观数据并没有公布日期，所以及时使用会存在严重的使用未来信息的问题
 # 经过将资料查询，为了确保数据的足够延后性，对数据进行以下调整：
-
-
 # 3、月度数据：当月数据，于下月20日对应的最近交易日才可取用，即延后半个月
-
 def get_EBD_data(date_list = None ,fre = 'd',weight=0.5):
     tables = 'GFZQEDB'
     factor_list = ['F2_4112', 'F3_4112', 'F4_4112', 'F5_4112', 'TDATE', 'INDICATOR_NUM']
@@ -316,8 +314,29 @@ def get_EBD_data(date_list = None ,fre = 'd',weight=0.5):
 
     return save_data1
 
+def get_moneyflow_data(factor,date_list=None, code_list=None):
+    address = base_address+'MoneyFlow/'
+    data_list = [int(x[:-3]) for x in os.listdir(address)]
+
+    if date_list !=None:
+        use_date_list = sorted(list(set(data_list).intersection(date_list)))
+    else:
+        use_date_list = sorted(data_list)
 
 
+    df = pd.DataFrame()
+    for date in use_date_list:
+        temp = pd.read_hdf('%s/%s.h5' % (address, str(date)), str(date), columns=[factor])
+        if len(temp.columns)>0:
+            temp = temp.T
+            temp.index = [date]
+            df = pd.concat([df, temp])
 
+    if len(df) == 0:
+        print('无该数据')
+        return df
 
+    if code_list != None:
+        df = df.reindex(code_list).dropna(how='all')
 
+    return df
