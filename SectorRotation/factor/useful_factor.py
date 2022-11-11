@@ -8,7 +8,7 @@ from dataApi.tradeDate import *
 import pandas as pd
 import numpy as np
 from SectorRotation.FactorTest import *
-################################################## 龙头股和动量因子（3） #################################################
+################################################## 量价因子（7） #################################################
 def Factor_DragonDifference(start_date,end_date,ind):
     # 逻辑：将板块内的个股拆分为大市值个股和小市值个股；关注版块内大市值个股的表现，和板块内整个个股走势的表现。
     # 在相同的市场行情下，分化度越小的小的板块，表明行情的同步性越强，后面表现会更为一致；分化度越大的板块，表明行情的同步性较弱，豁免会出现回落。
@@ -80,6 +80,113 @@ def Factor_HighMomentum(start_date,end_date,ind):
     factor = (overnight_factor.sub(overnight_factor.mean(axis=1), axis=0).div(overnight_factor.std(axis=1), axis=0)) ** 2
 
     return -factor.loc[get_pre_trade_date(start_date,offset=1):end_date]
+
+def Factor_bigsmall_order(start_date,end_date,ind,period='M'):
+
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date)
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date, period=period)
+    stock_pool = clean_stock_list(least_live_days=1, no_ST=False, no_pause=False, no_limit_up=False,
+                                  start_date=date_list[0], end_date=period_date_list[-1]).dropna(how='all')
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    code_ind = get_daily_1factor(ind, date_list=date_list)[stock_pool]
+    ind_useful = get_useful_ind(ind, date_list)
+    # 大单指标
+    big_order_buy = get_moneyflow_data('BUY_VALUE_EXLARGE_ORDER',date_list=date_list)
+    big_order_sell = get_moneyflow_data('SELL_VALUE_EXLARGE_ORDER',date_list=date_list)
+    small_order_buy = get_moneyflow_data('BUY_VALUE_SMALL_ORDER', date_list=date_list)
+    small_order_sell = get_moneyflow_data('SELL_VALUE_SMALL_ORDER', date_list=date_list)
+    # 自由流通市值
+    mv = (get_daily_1factor('mkt_free_cap', date_list=date_list))
+
+    daily_big_in = pd.DataFrame(index=date_list, columns=ind_name)
+    for i in ind_name:
+        factor_i = (big_order_buy -big_order_sell - ((small_order_buy - small_order_sell)))[code_ind == i].sum(axis=1) / mv[code_ind == i].sum(axis=1)
+        daily_big_in[i] = factor_i
+
+    factor = pd.DataFrame(index=period_date_list, columns=ind_name)
+    for i in range(1, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 1]
+        factor.loc[date] = daily_big_in.loc[last_date:date].sum()
+    factor = factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
+    return factor
+
+def Factor_bigsmall_amt_order(start_date, end_date, ind, period='M'):
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date)
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date, period=period)
+    stock_pool = clean_stock_list(least_live_days=1, no_ST=False, no_pause=False, no_limit_up=False,
+                                  start_date=date_list[0], end_date=period_date_list[-1]).dropna(how='all')
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    code_ind = get_daily_1factor(ind, date_list=date_list)[stock_pool]
+    ind_useful = get_useful_ind(ind, date_list)
+    # 大单指标
+    big_order_buy = get_moneyflow_data('BUY_VALUE_EXLARGE_ORDER', date_list=date_list)
+    big_order_sell = get_moneyflow_data('SELL_VALUE_EXLARGE_ORDER', date_list=date_list)
+    small_order_buy = get_moneyflow_data('BUY_VALUE_SMALL_ORDER', date_list=date_list)
+    small_order_sell = get_moneyflow_data('SELL_VALUE_SMALL_ORDER', date_list=date_list)
+    # 自由流通市值
+    amt = (get_daily_1factor('amt', date_list=date_list))
+
+    daily_big_in = pd.DataFrame(index=date_list, columns=ind_name)
+    for i in ind_name:
+        factor_i = (big_order_buy - big_order_sell - ((small_order_buy - small_order_sell)))[code_ind == i].sum(axis=1) / amt[code_ind == i].sum(axis=1)
+        daily_big_in[i] = factor_i
+
+    factor = pd.DataFrame(index=period_date_list, columns=ind_name)
+    for i in range(1, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 1]
+        factor.loc[date] = daily_big_in.loc[last_date:date].sum()
+
+    factor = factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
+
+    return factor
+
+def Factor_sharpe(start_date,end_date,ind,period='M'):
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date, period=period)
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date)
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    ind_useful = get_useful_ind(ind, date_list)
+    # 个股所属行业
+    ind_close = get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1])
+    ind_pct = ind_close.pct_change(1,fill_method=None)
+    factor = pd.DataFrame(index=period_date_list, columns=ind_pct.columns)
+    for i in range(1, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 1]
+        pct_month = ind_close.loc[date] / ind_close.loc[last_date] - 1
+
+        factor.loc[date] = pct_month / ind_pct.loc[last_date:date].std()
+
+    factor = factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
+
+
+    return factor
+
+def Factor_jensen(start_date,end_date,ind,period='M'):
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date, period=period)
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date)
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    ind_useful = get_useful_ind(ind, date_list)
+    # 个股所属行业
+    ind_close = get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1])
+    ind_pct = ind_close.pct_change(1,fill_method=None)
+    bench_close = get_daily_1factor('close',date_list=date_list,type='bench')['wind_A']
+    bench_pct = bench_close.pct_change(1,fill_method=None)
+
+    factor = pd.DataFrame(index=period_date_list, columns=ind_pct.columns)
+    for i in range(1, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 1]
+        beta = pd.Series(index = ind_name)
+        for t in ind_name:
+            beta.loc[t] = np.cov(ind_pct.loc[last_date:date,t], bench_pct.loc[last_date:date])[0,1] / bench_pct.loc[last_date:date].std()
+
+        pct_month = ind_close.loc[date] / ind_close.loc[last_date] - 1
+        bench_pct_month = bench_pct.loc[date] / bench_pct.loc[last_date] - 1
+
+        factor.loc[date] = pct_month - beta * bench_pct_month
+
+    factor = factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
+
+
+    return factor
 
 ##################################################### 北向资金因子（7） ##################################################
 def north_volume_net_in(date_list):
@@ -206,7 +313,7 @@ def Factor_NorthPositiveRate(start_date,end_date,ind):
     # 给结果根据行业的情况赋值
     factor = factor[ind_useful].dropna(how='all') ** 2
 
-    return factor.loc[max(get_pre_trade_date(start_date, offset=1),20170101):end_date].astype(float)
+    return factor.loc[max(get_pre_trade_date(start_date, offset=1),20161201):end_date].astype(float)
 
 def Factor_NorthPositiveRate_Unline(start_date,end_date,ind):
     # 逻辑：北向资金在过去120日净流入情况 / 北向资金在过去120日的流入情况。
@@ -240,7 +347,7 @@ def Factor_NorthPositiveRate_Unline(start_date,end_date,ind):
     for i in new_factor.index:
         new_factor.loc[i] = get_regression(factor.loc[i].dropna(), (factor**3).loc[i].dropna(), type='residual')
 
-    return new_factor.loc[max(get_pre_trade_date(start_date, offset=1),20170101):end_date].astype(float)
+    return new_factor.loc[max(get_pre_trade_date(start_date, offset=1),20161201):end_date].astype(float)
 
 def Factor_NorthWeight(start_date,end_date,ind):
     # 逻辑：北向资金过去20日的净流入 / 北向资金过去20日在所有行业的净流入 （ 即北向资金净流入有多少比例流入到了该行业中）
@@ -271,7 +378,7 @@ def Factor_NorthWeight(start_date,end_date,ind):
 
     factor =factor[ind_useful] ** 2
 
-    return factor.loc[max(get_pre_trade_date(start_date, offset=1),20170101):end_date].astype(float)
+    return factor.loc[max(get_pre_trade_date(start_date, offset=1),20161201):end_date].astype(float)
 
 def Factor_north_bigin(start_date,end_date,ind,period='M'):
     # 逻辑：北向资金本月流入金额/上个月原本持有某一只个股的市值，表明北向资金是否相对于自身大幅度加仓
@@ -303,7 +410,7 @@ def Factor_north_bigin(start_date,end_date,ind,period='M'):
         ind_flowratio[i] = (flowratio[code_ind == i] *  mv[code_ind == i].div(mv[code_ind == i].sum(axis=1),axis=0)).sum(axis=1)
         #ind_flowratio[i] = flowratio[code_ind == i].mean(axis=1)
 
-    factor = ind_flowratio[ind_useful].dropna(how='all').astype(float).loc[start_date:end_date]
+    factor = ind_flowratio[ind_useful].dropna(how='all').astype(float).loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     #factor = ind_flowratio.rolling(20).mean()[ind_useful].dropna(how='all')
     #factor = (deal_data(factor) ** 2)
@@ -311,7 +418,7 @@ def Factor_north_bigin(start_date,end_date,ind,period='M'):
 
     return factor
 
-##################################################### 和barra因子回归取残差（2) ##################################################
+##################################################### 取残差因子（4) ##################################################
 def Factor_ResidualMometumn_2barra_sizebtop(start_date,end_date,ind,period='M'):
     # 逻辑：残差动量，即单纯的动量因子可能受到该区间内某些表现较好的风险因子的影响；因此风险因子发生反转时，那么动量因子就容易失效。
     # 因此，先通过回归剥离风险因子的影响，得到残差，规避风险因子对策略的影响。
@@ -349,7 +456,7 @@ def Factor_ResidualMometumn_2barra_sizebtop(start_date,end_date,ind,period='M'):
         factor3[i] = regression_residual3[i]
 
     factor = (factor1.fillna(0) + factor2.fillna(0) + factor3.fillna(0))[ind_useful]
-    factor = -factor.loc[start_date:end_date][ind_useful].astype(float)
+    factor = -factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
 
     return factor
 
@@ -388,7 +495,61 @@ def Factor_ResidualOverNightMometumn_2barra_sizebtop(start_date,end_date,ind,per
 
 
     factor = (factor1.fillna(0) + factor2.fillna(0))[ind_useful]
-    factor = -factor.loc[start_date:end_date][ind_useful].astype(float)
+    factor = -factor.loc[get_pre_trade_date(start_date, offset=1):end_date][ind_useful].astype(float)
+
+    return factor
+
+def Factor_residual_momentum(start_date,end_date,ind,period='M'):
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date, period=period)
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date)
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    code_ind = get_daily_1factor(ind, date_list=date_list)
+    ind_useful = get_useful_ind(ind, date_list)
+    #stock_pool = clean_stock_list(start_date=get_pre_trade_date(start_date, offset=120), end_date=end_date)
+    # 个股所属行业
+    ind_close = get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1])
+    ind_amt = get_daily_1factor('amt', date_list=date_list, code_list=ind_name, type=ind[:-1])
+    amt_ratio = ind_amt/ ind_amt.shift(1) - 1
+    ind_pct = ind_close / ind_close.shift(1) - 1
+
+    factor = pd.DataFrame(index=period_date_list, columns=ind_pct.columns)
+    for i in range(12, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 12]
+        for t in ind_name:
+            df_y = ind_pct.loc[last_date:date,t].dropna()
+            df_x = amt_ratio.loc[last_date:date,t].dropna()
+            if len(df_x) >0:
+                wls = sm.WLS(df_y,df_x).fit()
+                factor.loc[date,t] = wls.resid.sum() / df_y.std()
+
+    factor = factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
+
+    return factor
+
+def Factor_residual_overnight(start_date,end_date,ind,period='M'):
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date, period=period)
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date)
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    ind_useful = get_useful_ind(ind, date_list)
+
+    ind_close = get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1])
+    ind_open = get_daily_1factor('open', date_list=date_list, code_list=ind_name, type=ind[:-1])
+    ind_amt = get_daily_1factor('amt', date_list=date_list, code_list=ind_name, type=ind[:-1])
+    amt_ratio = ind_amt/ ind_amt.rolling(10).mean() - 1
+    ind_pct = ind_open / ind_close.shift(1) - 1
+
+    factor = pd.DataFrame(index=period_date_list, columns=ind_pct.columns)
+    for i in range(12, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 12]
+        for t in ind_name:
+            df_y = ind_pct.loc[last_date:date,t].dropna()
+            df_x = amt_ratio.loc[last_date:date,t].dropna()
+            all_index = (set(df_y.index)).intersection(df_x.index)
+            if len(df_x) >0:
+                wls = sm.WLS(df_y.loc[all_index],df_x.loc[all_index]).fit()
+                factor.loc[date,t] = wls.resid.sum() / df_y.std()
+
+    factor = factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date].astype(float)
 
     return factor
 
@@ -432,7 +593,7 @@ def Factor_ROA(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -475,7 +636,7 @@ def Factor_SUE_diff(start_date,end_date,ind,period='M'):
         SUE_i = (SUE[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_SUE[i] = SUE_i
 
-    factor = ind_SUE[ind_useful].loc[start_date:end_date]
+    factor = ind_SUE[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -519,7 +680,7 @@ def Factor_asset_turnover_diff(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -563,7 +724,7 @@ def Factor_GPM(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -607,7 +768,7 @@ def Factor_GPM_meanstd(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -649,7 +810,7 @@ def Factor_AT(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -664,10 +825,8 @@ def Factor_APR_diff(start_date,end_date,ind,period='M'):
                                   start_date=date_list[0], end_date=period_date_list[-1]).reindex(
         period_date_list).dropna(how='all')
 
-    net_profit = get_quarter_1factor('NET_PROFIT_EXCL_MIN_INT_INC', 'AShareIncome', report_type='408001000', date_list=date_list).dropna(
-        how='all', axis=1)
-    cash_flow = get_quarter_1factor('NET_CASH_FLOWS_OPER_ACT', 'AShareCashFlow', report_type='408001000', date_list=date_list).dropna(
-        how='all', axis=1)
+    net_profit = get_quarter_1factor('NET_PROFIT_EXCL_MIN_INT_INC', 'AShareIncome', report_type='408001000', date_list=date_list).dropna(how='all', axis=1)
+    cash_flow = get_quarter_1factor('NET_CASH_FLOWS_OPER_ACT', 'AShareCashFlow', report_type='408001000', date_list=date_list).dropna(how='all', axis=1)
 
     opr_revnue = get_quarter_1factor('TOT_OPER_REV', 'AShareIncome', report_type='408001000',date_list=date_list).dropna(how='all', axis=1)
     opr_cost = get_quarter_1factor('TOT_OPER_COST', 'AShareIncome', report_type='408001000',date_list=date_list).dropna(how='all', axis=1)
@@ -697,7 +856,7 @@ def Factor_APR_diff(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
@@ -744,7 +903,7 @@ def Factor_QR_diff2(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = deal_data(ind_factor[ind_useful].loc[start_date:end_date])  ** 2
+    factor = deal_data(ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date])  ** 2
 
     return factor
 
@@ -753,7 +912,7 @@ def Factor_epredict_eps_3m(start_date,end_date,ind,period='M'):
     ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
     code_ind = get_daily_1factor(ind, date_list=date_list)
     ind_useful = get_useful_ind(ind, date_list)
-    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=1200), end_date, period=period)
+    period_date_list = get_date_range(max(get_pre_trade_date(start_date, offset=1200),20100101), end_date, period=period)
     # 净利润
     stock_pool = clean_stock_list(least_live_days=1, no_ST=False, no_pause=False, no_limit_up=False,
                                   start_date=date_list[0], end_date=period_date_list[-1]).reindex(period_date_list).dropna(how='all')
@@ -781,30 +940,36 @@ def Factor_epredict_eps_3m(start_date,end_date,ind,period='M'):
         factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
         ind_factor[i] = factor_i
 
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = ind_factor[ind_useful].loc[get_pre_trade_date(start_date, offset=1):end_date]
 
     return factor
 
-
-
 if __name__ == '__main__':
-    start_date,end_date = 20150101,20220926
+    start_date,end_date = 20131201,20221102
+    north_start_date = 20160601
     ind = 'SW1'
     save_path = 'E:/FactorTest/useful_factor/'
+
     Factor_DragonDifference(start_date, end_date, ind).to_pickle(save_path + 'Factor_DragonDifference' + '.pkl')
     Factor_OverNightMomentum(start_date,end_date,ind).to_pickle(save_path + 'Factor_OverNightMomentum' + '.pkl')
     Factor_HighMomentum(start_date,end_date,ind).to_pickle(save_path + 'Factor_HighMomentum' + '.pkl')
+    Factor_bigsmall_order(start_date,end_date,ind,'M').to_pickle(save_path + 'Factor_bigsmall_order' + '.pkl')
+    Factor_bigsmall_amt_order(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_bigsmall_amt_order' + '.pkl')
+    Factor_sharpe(start_date, end_date, ind, period='M').to_pickle(save_path + 'Factor_sharpe' + '.pkl')
+    Factor_jensen(start_date, end_date, ind, period='M').to_pickle(save_path + 'Factor_jensen' + '.pkl')
 
-    Factor_NorthAmtIn(20170101, end_date, ind).to_pickle(save_path + 'Factor_NorthAmtIn' + '.pkl')
-    Factor_NorthPositiveWeight(20170101, end_date, ind).to_pickle(save_path + 'Factor_NorthPositiveWeight' + '.pkl')
-    Factor_NorthNegitiveWeight(20170101, end_date, ind).to_pickle(save_path + 'Factor_NorthNegitiveWeight' + '.pkl')
-    Factor_NorthPositiveRate(20170101, end_date, ind).to_pickle(save_path + 'Factor_NorthPositiveRate' + '.pkl')
-    Factor_NorthPositiveRate_Unline(20170101, end_date, ind).to_pickle(save_path + 'Factor_NorthPositiveRate_Unline' + '.pkl')
-    Factor_NorthWeight(20170101, end_date, ind).to_pickle(save_path + 'Factor_NorthWeight' + '.pkl')
-    Factor_north_bigin(20170101, end_date, ind).to_pickle(save_path + 'Factor_north_bigin' + '.pkl')
+    Factor_NorthAmtIn(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_NorthAmtIn' + '.pkl')
+    Factor_NorthPositiveWeight(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_NorthPositiveWeight' + '.pkl')
+    Factor_NorthNegitiveWeight(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_NorthNegitiveWeight' + '.pkl')
+    Factor_NorthPositiveRate(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_NorthPositiveRate' + '.pkl')
+    Factor_NorthPositiveRate_Unline(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_NorthPositiveRate_Unline' + '.pkl')
+    Factor_NorthWeight(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_NorthWeight' + '.pkl')
+    Factor_north_bigin(north_start_date, end_date, ind).to_pickle(save_path + 'Factor_north_bigin' + '.pkl')
 
     Factor_ResidualMometumn_2barra_sizebtop(start_date, end_date, ind).to_pickle(save_path + 'Factor_ResidualMometumn_2barra_sizebtop' + '.pkl')
     Factor_ResidualOverNightMometumn_2barra_sizebtop(start_date, end_date, ind).to_pickle(save_path + 'Factor_ResidualOverNightMometumn_2barra_sizebtop' + '.pkl')
+    Factor_residual_momentum(start_date, end_date, ind, period='M').to_pickle(save_path + 'Factor_residual_momentum' + '.pkl')
+    Factor_residual_overnight(start_date,end_date,ind,period='M').to_pickle(save_path + 'Factor_residual_overnight' + '.pkl')
 
     Factor_ROA(start_date, end_date, ind,'M').to_pickle(save_path + 'Factor_SUE' + '.pkl')
     Factor_SUE_diff(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_SUE_diff' + '.pkl')
@@ -813,45 +978,23 @@ if __name__ == '__main__':
     Factor_GPM_meanstd(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_GPM_meanstd' + '.pkl')
     Factor_AT(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_AT' + '.pkl')
     Factor_APR_diff(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_APR_diff' + '.pkl')
-    Factor_QR_diff2(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_APR_diff' + '.pkl')
+    Factor_QR_diff2(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_QR_diff2' + '.pkl')
     Factor_epredict_eps_3m(start_date, end_date, ind, 'M').to_pickle(save_path + 'Factor_epredict_eps_3m' + '.pkl')
 
 
+'''
+self = FactorTest(test_start_date=20151231, test_end_date=20221101, ind='SW1', day=20,fee=0.001)
+
 save_path = 'E:/FactorTest/useful_factor/'
-factor = pd.read_pickle(save_path + 'Factor_NorthPositiveRate' + '.pkl')
-start_date,end_date,ind = 20150101, 20221130, 'SW1'
-#factor = Factor_Dragon(start_date,end_date,ind)
-test_start_date = max(20140101, factor.index[0])
-test_end_date = min(20221130, factor.index[-1])
-self = FactorTest(test_start_date=test_start_date, test_end_date=test_end_date, ind=ind, day=20,fee=0.001)
-#test_result, value_result, ic, rank_ic = factor_in_box(factor,'Factor_NorthAmtIn', ind,fee=0.001)
-box_in, test_result0, value_result0, ic0, rank_ic0 = self.cal_factor_result(factor, save_path = 'E:/FactorTest/')
-test_result0
-value_result0[[1,2,3,4,5]]
+factor_list = [x[:-4] for x in os.listdir(save_path)]
+factor_result = pd.DataFrame(index = factor_list, columns=['ic','rank_ic','ICIR','excess_return','excess_sharpe','ls_return','ls_sharpe'])
+for factor_name in factor_list:
+    factor = pd.read_pickle(save_path + factor_name + '.pkl')
+    box_in, test_result0, value_result0, ic0, rank_ic0 = self.cal_factor_result(factor, save_path=None)
+    factor_result.loc[factor_name] = test_result0.loc[['ic','rank_ic','ICIR','excess_return','excess_sharpe','ls_return','ls_sharpe'],'all']
 
-
-
-
-
-def Factor_Momentum(start_date,end_date,ind):
-    # 逻辑：隔夜溢价率，个股最近20日的隔夜溢价率，表现出明显的反转效应。
-    # 通常表现为，机构资金通常不会在隔夜大幅下单，如果隔夜的溢价率较高，表明是散户的行为，那么过于一个月散户行为较为明显的，未来收益会较弱
-    date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date)
-    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
-    ind_useful = get_useful_ind(ind, date_list)
-
-    ind_close =get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1])
-    ind_open = get_daily_1factor('open', date_list=date_list, code_list=ind_name, type=ind[:-1])
-
-    inday_factor = (ind_close / ind_open - 1).rolling(10).sum()
-    overnight_factor = (ind_open / ind_close.shift(1)-1).rolling(20).sum()
-
-    factor =inday_factor
-    # 给结果根据行业的情况赋值
-    factor = factor[ind_useful].loc[get_pre_trade_date(start_date,offset=1):end_date]
-
-    return -factor
-
-
-
-
+factor_result.loc[['Factor_DragonDifference','Factor_OverNightMomentum','Factor_HighMomentum','Factor_bigsmall_order','Factor_bigsmall_amt_order','Factor_sharpe','Factor_jensen']].mean()
+factor_result.loc[['Factor_NorthAmtIn','Factor_NorthPositiveWeight','Factor_NorthNegitiveWeight','Factor_NorthPositiveRate','Factor_NorthPositiveRate_Unline','Factor_NorthWeight','Factor_north_bigin']].mean()
+factor_result.loc[['Factor_ResidualMometumn_2barra_sizebtop','Factor_ResidualOverNightMometumn_2barra_sizebtop','Factor_residual_momentum','Factor_residual_overnight']].mean()
+factor_result.loc[['Factor_SUE','Factor_SUE_diff','Factor_asset_turnover_diff','Factor_GPM','Factor_GPM_meanstd','Factor_AT','Factor_APR_diff','Factor_QR_diff2','Factor_epredict_eps_3m']].mean()
+'''

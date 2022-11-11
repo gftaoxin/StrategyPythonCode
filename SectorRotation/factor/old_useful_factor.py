@@ -153,6 +153,19 @@ def Factor_SUE(start_date,end_date,ind,period='M'):
 
     return factor
 
+def Factor_12and1Momentum(start_date,end_date,ind,period='M'):
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date, period=period)
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date)
+    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
+    ind_useful = get_useful_ind(ind, date_list)
+    # 个股所属行业
+    ind_close =get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1]).reindex(period_date_list)
+    pct_12m = ind_close.pct_change(12,fill_method=None)
+    pc_1m = ind_close.pct_change(1,fill_method=None)
+
+    factor = (pct_12m + pc_1m)[ind_useful].loc[start_date:end_date].astype(float)
+
+    return factor
 
 if __name__ == '__main__':
     start_date = 20150101
@@ -162,8 +175,8 @@ if __name__ == '__main__':
     Factor_Dragon(start_date, end_date, ind).to_pickle(save_path + 'Factor_Dragon' + '.pkl')
     Factor_NorthAmtMv(start_date,end_date,ind).to_pickle(save_path + 'Factor_NorthAmtMv' + '.pkl')
     Factor_ResidualMometumn_3barra(start_date,end_date,ind,period='M').to_pickle(save_path + 'Factor_ResidualMometumn_3barra' + '.pkl')
-    Factor_NorthMaxdivPositve(start_date,end_date,ind,period='M').to_pickle(save_path + 'Factor_NorthMaxdivPositve' + '.pkl')
-
+    Factor_NorthMaxdivPositve(start_date,end_date,ind).to_pickle(save_path + 'Factor_NorthMaxdivPositve' + '.pkl')
+    Factor_12and1Momentum(start_date, end_date, ind, period='M').to_pickle(save_path + 'Factor_12and1Momentum' + '.pkl')
 
 
 

@@ -47,7 +47,7 @@ def ts_rank(df, rol_day='history'):
     if rol_day == 'history':
         df = df.expanding().apply(lambda x: rollingRankArgSort(x.values))
     else:
-        df = df.rolling(rol_day, min_periods=60).apply(lambda x: rollingRankArgSort(x.values))
+        df = df.rolling(rol_day, min_periods=int(rol_day/2)).apply(lambda x: rollingRankArgSort(x.values))
     return df
 
 # 函数2：获取两个dataframe相关系数

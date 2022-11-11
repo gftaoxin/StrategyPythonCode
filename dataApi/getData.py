@@ -2,6 +2,7 @@ import datetime as dt
 import os
 import pickle
 import pandas as pd
+from tqdm import tqdm
 import numpy as np
 import cx_Oracle,re
 from dataApi.tradeDate import *
@@ -325,7 +326,7 @@ def get_moneyflow_data(factor,date_list=None, code_list=None):
 
 
     df = pd.DataFrame()
-    for date in use_date_list:
+    for date in tqdm(use_date_list):
         temp = pd.read_hdf('%s/%s.h5' % (address, str(date)), str(date), columns=[factor])
         if len(temp.columns)>0:
             temp = temp.T

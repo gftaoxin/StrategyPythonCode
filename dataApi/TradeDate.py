@@ -417,7 +417,7 @@ def get_pre_trade_date(base_date=None, offset=1, period='D', dividing_point=15):
         preTradeDate = period[period.index(recent_trade_date) - offset]
 
     elif period in period_dict.keys():
-        preTradeDate = period_dict[period][period_dict[period].index(recent_trade_date) - offset]
+        preTradeDate = period_dict[period][max(period_dict[period].index(recent_trade_date) - offset,0)]
 
     else:
         raise ValueError

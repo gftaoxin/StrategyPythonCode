@@ -329,7 +329,7 @@ class FactorTest(object):
         # 第一步：获取分组
         group_num = pd.DataFrame(index=choice_num.index, columns=range(1,group+1))
         group_num[1], group_num[group] = choice_num, choice_num # 首尾两组必须是一致的
-            # 其余的部分往中间组填充
+        # 其余的部分往中间组填充
         average_num = ((~np.isnan(factor)).sum(axis=1) - 2 * choice_num) // (group - 2)
         mod_num = ((~np.isnan(factor)).sum(axis=1) - 2 * choice_num) %  (group - 2)
         for i in trans_list_from_middle(list(range(1,group+1))[1:-1]):
@@ -467,7 +467,6 @@ class FactorTest(object):
         value_result = value_result.astype(float).round(4)
 
         return test_result, value_result, all_net_values, ic, rank_ic
-
     # 开始进行因子测试
     def cal_factor_result(self,factor,save_path =None,factor_name = 'test_factor'):
         factor = factor[self.ind_useful]
@@ -526,130 +525,153 @@ class FactorTest(object):
 
     ############################################# 策略测试部分 ########################################################
     def single_factor_test(self,test_factor,fee):
+        trade_date_list = get_date_range(test_factor.index[0], test_factor.index[-1],period='M')
+
         net_value = pd.Series(index=get_date_range(test_factor.index[0],get_pre_trade_date(test_factor.index[-1],offset=-1)))  # 计算净值
         turn = pd.Series(index=test_factor.index)
         base_money = 1 * (1 - fee)
-        for i in range(0, len(test_factor) - 1):
-            signal_date, next_signal_date = test_factor.index[i], test_factor.index[i + 1]
-            signal = test_factor.loc[signal_date] * base_money
-            cash = round(base_money - signal.sum(), 4)  # 购买之后剩余的现金
-
+        for i in range(0, len(trade_date_list) - 1):
+            signal_date, next_signal_date = trade_date_list[i], trade_date_list[i + 1]
             buy_date, sell_date = get_pre_trade_date(signal_date, -1), get_pre_trade_date(next_signal_date, -1)
-            pct_daily = self.ind_open.loc[buy_date:sell_date] / self.ind_open.loc[buy_date]
+            month_factor = test_factor.loc[signal_date:next_signal_date].iloc[:-1].reindex(getData.get_date_range(signal_date,sell_date)).ffill()
+            if month_factor.iloc[:-1].sum(axis=1).max() > 0:
+                money_weight = base_money / len(month_factor.iloc[:-1].sum()[month_factor.iloc[:-1].sum()>0])  # 把钱分成几份
+                month_factor = month_factor.replace(False,np.nan).ffill(limit=1).fillna(False)
 
-            month_net_value = (pct_daily * signal).sum(axis=1).iloc[1:]
-            net_value.loc[month_net_value.index] = cash + month_net_value
+                #pct_daily = (self.ind_open.loc[buy_date:sell_date] / self.ind_open.loc[buy_date])[month_factor].dropna(how='all',axis=1) * money_weight
+                #pct_daily = (self.ind_open.loc[buy_date:sell_date][month_factor].pct_change(fill_method=None).dropna(how='all',axis=1).fillna(0) +1).cumprod() * money_weight
 
-            base_money = month_net_value.iloc[-1] + cash
+                pct_daily = (self.ind_open.loc[buy_date:sell_date][month_factor].pct_change(fill_method=None).dropna(
+                    how='all', axis=1).fillna(0) + 1).cumprod() * money_weight
+
+                daily_net_value = pct_daily.ffill().sum(axis=1)
+
+                net_value.loc[pct_daily.index] = daily_net_value
+            else:
+                money_weight = 0
+                pct_daily = (self.ind_open.loc[buy_date:sell_date] / self.ind_open.loc[buy_date])[month_factor] * money_weight
+                daily_net_value = pct_daily.ffill().sum(axis=1)
+
+                net_value.loc[pct_daily.index] = base_money
+
+            base_money = net_value.loc[pct_daily.index].iloc[-1]  # 最后收盘时的总现金
 
             # 接下来考虑换手率对于现金的影响
-            end_ind_weight = (pct_daily * signal).iloc[-1]
-            next_ind_weight = test_factor.loc[next_signal_date] * base_money
-
-            change_rate = (next_ind_weight - end_ind_weight)[(next_ind_weight - end_ind_weight) > 0].sum()
+            if test_factor.loc[next_signal_date].sum() > 0:
+                next_ind_weight = test_factor.loc[next_signal_date] / test_factor.loc[next_signal_date].sum() * base_money
+            else:
+                next_ind_weight = pd.Series(0,end_ind_weight.index)
+            end_ind_weight = pct_daily.iloc[-1].fillna(0)
+            end_ind_weight = end_ind_weight.reindex(next_ind_weight.index).fillna(0)
+            change_rate = (next_ind_weight - end_ind_weight)[(next_ind_weight - end_ind_weight) > 0].sum() / base_money
             turn.loc[next_signal_date] = change_rate
 
             base_money = base_money * (1 - change_rate * fee)
 
         net_value = net_value.iloc[1:]
-        net_value.iloc[0] = 1
 
         return net_value, turn
 
-    def strategy_test(self, factor, fee=0.004, save_path=None,save_name = 'strategy'):
-        # 第一步：，信号生成：传入的dataframe有两种，当为True和Flase时，等权配置；当传入的dataframe为float时，则按照传入的权重进行配置，大于1时配置为1，小于1时不进行调整。
-        if factor.values.dtype == bool:  # 表明等权配置
-            factor = factor.reindex(self.period_date_list).dropna(how='all')  # 获取因子值
-            test_factor = factor.div(factor.sum(axis=1), axis=0)
-        elif factor.values.dtype in ('int64', 'int32', 'float64', 'float32'):
-            factor = factor.reindex(self.period_date_list).dropna(how='all')  # 获取因子值
-            test_factor = factor.copy()
-            test_factor.loc[test_factor.sum(axis=1)[test_factor.sum(axis=1) > 1].index] = test_factor.loc[
-                test_factor.sum(axis=1)[test_factor.sum(axis=1) > 0].index].div(
-                test_factor.loc[test_factor.sum(axis=1)[test_factor.sum(axis=1) > 0].index].sum(axis=1), axis=0)
+    # 画图
+    def draw_strategy_picture(self, df,sav_path=None):
+        df_list = df.copy()
+        df_list.index = df_list.index.astype(str)
+        fig = plt.subplots(figsize=(40, 15))
+        ax1 = plt.subplot(2, 1, 1)
+
+        ax1.plot(df_list.index, df_list[['factor','bench']].values)
+        ax1.set_xticks([])
+        ax1.legend(loc = 'best',labels = ['factor','bench'])
+        ax2 =  plt.subplot(2, 1, 2)
+        ax2.plot(df_list.index, df_list[['excess']].values)
+
+        xticks = list(range(0, len(df_list.index), 20))  # 这里设置的是x轴点的位置（40设置的就是间隔了）
+        xlabels = [df_list.index[x] for x in xticks]  # 这里设置X轴上的点对应在数据集中的值（这里用的数据为totalSeed）
+        ax2.set_xticks(xticks)
+        ax2.legend(loc='best', labels=['excess'])
+        ax2.set_xticklabels(xlabels, rotation=0, fontsize=20)
+        for tl in ax2.get_xticklabels():
+            tl.set_rotation(90)
+
+        if sav_path != None:
+            plt.savefig(sav_path + 'sentiment.jpg')
+        plt.show()
+
+    def strategy_test(self, factor, fee=0.001, save_path=None,save_name = 'strategy'):
+        need_del_list = ['801230.SI', '852311', '801231']
+        period_date_list = sorted(list(set(factor.index).intersection(self.period_date_list)))
+        bench_mark = self.ind_useful[factor.columns.difference(need_del_list)].loc[factor.index]
+        # 第一步：信号生成：传入的dataframe有两种，当为True和Flase时，等权配置；当传入的dataframe为float时，则按照传入的权重进行配置，大于1时配置为1，小于1时不进行调整。
+        factor_net_value, factor_turn = self.single_factor_test(factor, fee)
+        benchmark_net_value, benchmark_turn = self.single_factor_test(bench_mark, fee)
+
+        excess_net_value = factor_net_value / benchmark_net_value # 超额净值
+        top_pct = factor_net_value.loc[[get_pre_trade_date(x, -1) for x in period_date_list]].pct_change(1)  # 头部组合超额收益
+        excess_pct = excess_net_value.loc[[get_pre_trade_date(x, -1) for x in period_date_list]].pct_change(1)  # 单期超额收益
+
+        ########################################### 开始计算统计数据 ################################################################
+        year_list = sorted(list(set([x // 10000 for x in period_date_list[1:]])))
+        test_result = pd.DataFrame(index=['factor_return', 'factor_sharpe', 'factor_turn', 'factor_winrate', 'factor_wlratio','factor_maxdown',
+                                          'excess_return', 'excess_sharpe', 'excess_winrate', 'excess_wlratio','excess_maxdown',], columns=['all'] + year_list)
+        for year in test_result.columns:
+            year_date = factor_net_value.index.to_list() if year == 'all' else factor_net_value.loc[get_pre_trade_date(year * 10000 + 101):get_pre_trade_date(year * 10000 + 1231)].index.to_list()  # 日期列表
+            period_year_list = top_pct.index.to_list() if year == 'all' else \
+                top_pct.loc[get_pre_trade_date(year * 10000 + 101, -2):get_pre_trade_date((year + 1) * 10000 + 101,-1)].index.to_list()
+
+            # 计算组合收益率
+            for name in ['factor', 'excess']:
+                net_value = factor_net_value.loc[year_date].copy() if name == 'top' else excess_net_value.loc[year_date].copy()
+                net_value = net_value / net_value.iloc[0]
+                period_pct = top_pct.loc[period_year_list].copy() if name == 'top' else excess_pct.loc[period_year_list].copy()
+                test_result.loc[name + '_return', year] = net_value.iloc[-1] ** (252 / len(year_date)) - 1
+                test_result.loc[name + '_sharpe', year] = period_pct.mean() / period_pct.std() * np.sqrt(240 / self.day)
+                if name == 'factor':
+                    test_result.loc[name + '_turn', year] = factor_turn.mean() if year == 'all' else factor_turn.loc[get_pre_trade_date(year * 10000 + 101):get_pre_trade_date(year * 10000 + 1231)].mean()
+
+                test_result.loc[name + '_winrate', year] = (period_pct > 0).sum() / len(period_pct)
+                test_result.loc[name + '_wlratio', year] = -period_pct[period_pct > 0].mean() / period_pct[
+                    period_pct < 0].mean()
+                test_result.loc[name + '_maxdown', year] = ((net_value - net_value.cummax()) / net_value.cummax()).min()
+
+        test_result = test_result.astype(float).round(4)
+
+        all_net_value = pd.concat([factor_net_value.rename('factor'), benchmark_net_value.rename('bench'), excess_net_value.rename('excess')], axis=1)
+
+        self.draw_strategy_picture(all_net_value, save_path)
+
+        return test_result, all_net_value
+
+
+    ############################################# 风险因子 #############################################################
+    def risk_factor_test(self,factor,future_period = 'single'):
+        risk_factor = factor.copy()
+        if future_period == 'single':
+            period_date_list = get_date_range(risk_factor.index[0],get_pre_trade_date(risk_factor.index[-1],-1,'M'),period='M')
+            future_pct = self.ind_open.reindex([get_pre_trade_date(x,-1) for x in period_date_list]).dropna(how='all').pct_change(fill_method=None)
+            future_pct.index = [get_pre_trade_date(x) for x in future_pct.index]
+            future_pct = future_pct.shift(-1)
         else:
-            ValueError("date must be bool, int or float")
+            future_pct = self.ind_open.pct_change(20,fill_method=None).shift(-21)
 
-        # 第二步：获取每个周期的持仓，固定时间点调仓：同时，需要考虑费率，即每次调仓时手续费计算为千4
-        test_factor.fillna(0, inplace=True)
-        net_value, turn = self.single_factor_test(test_factor,fee)
+            risk_factor[risk_factor.rolling(10).sum() >1] = 0
 
-        # 第三步：获取每个基准的组合，benchmark：行业等权组合
-        benchmark_factor = ~np.isnan(self.ind_open.loc[test_factor.index, test_factor.columns])
-        benchmark_factor = benchmark_factor.astype(float).div(benchmark_factor.sum(axis=1), axis=0)
-        benchmark_net_value, benchmark_turn = self.single_factor_test(benchmark_factor,fee)
+        bench_pct = future_pct.mean(axis=1)
 
-        # 第四步：计算超额，超额的计算方式为，用两者净值相减
-        bench_net_value = self.bench_open.loc[net_value.index] / self.bench_open.loc[net_value.index].iloc[0]
-        all_net_value = pd.concat([net_value.rename('factor'),benchmark_net_value.rename('benchmark'),bench_net_value],axis=1)
-
-        excess_value = pd.DataFrame(index=net_value.index,columns=['benchmark_excess', '300_excess', '500_excess', 'A_excess'])
-        excess_value['benchmark_excess'] = net_value / benchmark_net_value
-        excess_value[['300_excess','500_excess','A_excess']] = (net_value / bench_net_value[['HS300','ZZ500','wind_A']].T).T
-
-        ########################################### 开始计算统计数据 #################################################################
-        # 1、按固定周期计算单期结果：统计月度收益率，胜率，盈亏比，换手率。超额的胜率收益率，胜率，盈亏比，换手率
-        period_profit = all_net_value.reindex(self.trade_date_list).dropna().pct_change()
-        # （在固定的周期下）胜率，收益率，盈亏比，换手率
-        year_list = sorted(list(set([x // 10000 for x in period_profit.index.to_list()[1:]])))
-        result = pd.DataFrame(index=['胜率', '年化收益率', '盈亏比', '换手率',
-                                     '相对基准胜率', '相对基准收益率', '相对基准盈亏比',
-                                     '相对300胜率', '相对300收益率', '相对300盈亏比',
-                                     '相对500胜率', '相对500收益率', '相对500盈亏比',
-                                     '相对全A胜率', '相对全A收益率', '相对全A盈亏比'], columns=['all'] + year_list)
-
-        for year in result.columns:
-            year_date = net_value.index.to_list() if year == 'all' else net_value.loc[year * 10000 + 101:get_pre_trade_date((year+1) * 10000 + 101,offset=-1)].index.to_list()  # 日期列表
-            #period_date = [get_pre_trade_date(x, offset=-1) for x in test_factor.loc[year_date[0]:year_date[-1]].index.to_list()]
-            year_period_profit = period_profit.loc[year_date[0]:year_date[-1]]
-
-            year_value = net_value.loc[year_date] / net_value.loc[year_date[0]]  # 给定周期的净值曲线
-            year_benchmark_value = benchmark_net_value.loc[year_date] / benchmark_net_value.loc[year_date[0]] # 给定周期基准的净值曲线
-            year_bench_value = bench_net_value.loc[year_date] / bench_net_value.loc[year_date[0]] # 给定周期指数的净值曲线
-
-            result.loc['胜率',year] = (year_period_profit['factor']>0).sum() / len(year_period_profit['factor'])
-            result.loc['年化收益率',year] = year_value.iloc[-1] ** (242/len(year_value)) - 1
-            result.loc['盈亏比',year] = -year_period_profit['factor'][year_period_profit['factor']>0].mean() / year_period_profit['factor'][year_period_profit['factor']<0].mean()
-            result.loc['换手率',year] = turn.loc[year_date[0]:year_date[-1]].mean()
-
-            # 相对基准情况
-            excess = (year_period_profit['factor'] - year_period_profit[['benchmark','HS300','ZZ500','wind_A']].T).T
-
-            result.loc['相对基准胜率',year] = (excess['benchmark'] >0).sum() / len(excess)
-            result.loc['相对基准收益率', year] = (excess_value['benchmark_excess'].loc[year_date[-1]] / excess_value['benchmark_excess'].loc[year_date[0]])** (242/len(year_value)) - 1
-            result.loc['相对基准盈亏比', year] = -excess['benchmark'][excess['benchmark']>0].mean() / excess['benchmark'][excess['benchmark']<0].mean()
-
-            result.loc['相对300胜率', year] = (excess['HS300'] > 0).sum() / len(excess)
-            result.loc['相对300收益率', year] = (excess_value['300_excess'].loc[year_date[-1]] / excess_value['300_excess'].loc[year_date[0]]) ** (242 / len(year_value)) - 1
-            result.loc['相对300盈亏比', year] = -excess['HS300'][excess['HS300'] > 0].mean() / excess['HS300'][excess['HS300'] < 0].mean()
-
-            result.loc['相对500胜率', year] = (excess['ZZ500'] > 0).sum() / len(excess)
-            result.loc['相对500收益率', year] = (excess_value['500_excess'].loc[year_date[-1]] / excess_value['500_excess'].loc[year_date[0]]) ** (242 / len(year_value)) - 1
-            result.loc['相对500盈亏比', year] = -excess['ZZ500'][excess['ZZ500'] > 0].mean() / excess['ZZ500'][excess['ZZ500'] < 0].mean()
-
-            result.loc['相对全A胜率', year] = (excess['wind_A'] > 0).sum() / len(excess)
-            result.loc['相对全A收益率', year] = (excess_value['A_excess'].loc[year_date[-1]] / excess_value['A_excess'].loc[year_date[0]]) ** (242 / len(year_value)) - 1
-            result.loc['相对全A盈亏比', year] = -excess['wind_A'][excess['wind_A'] > 0].mean() / excess['wind_A'][excess['wind_A'] < 0].mean()
-
-            # 2、绘制净值曲线图：和单一策略的年化收益率，盈亏比，最大回撤，日胜率，
-
+        result = pd.DataFrame(index = risk_factor.index,columns=['num','pct','excess','win_rate'])
+        for date in (risk_factor.index):
+            risk_ind = risk_factor.loc[date][risk_factor.loc[date]==True].index.to_list()
+            if len(risk_ind) == 0:
+                continue
+            result.loc[date] = len(risk_ind), future_pct.loc[date,risk_ind].mean(), \
+                                   future_pct.loc[date, risk_ind].mean()-bench_pct.loc[date], \
+                                   (future_pct.loc[date,risk_ind] < bench_pct.loc[date]).sum() / len(risk_ind)
         result = result.astype(float).round(4)
-
-        # 3、绘制超额收益曲线，相比基准，300，500，全A：年化超额收益率，盈亏比，最大回撤，日胜率
-        if save_path != None:
-            self.save_path = save_path
-            self.draw_picture([all_net_value,excess_value],factor_name=save_name+'net_value')
-
-            writer = pd.ExcelWriter(self.save_path + 'Strategy_' + save_name + str(self.day) + '.xlsx')
-            result.to_excel(writer, sheet_name='result')
-            all_net_value.to_excel(writer, sheet_name='net_value')
-            excess_value.to_excel(writer, sheet_name='excess_value')
-            writersheet = writer.sheets['net_value']
-            writersheet.insert_image('G1', self.save_path + save_name + 'net_value'+str(self.day)+'.png')
-            writer.close()
+        result = result.dropna(how='all')
 
 
-        return result, all_net_value,excess_value
+        print('平均超额',round(result['excess'].mean(),4),'胜率',round(result['win_rate'].mean(),4))
+
+        return result
 
 
 

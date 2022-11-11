@@ -29,30 +29,33 @@ def trans_factor_to_industry(df,code_ind,ind_name):
     return new_df.astype(float).round(5)
 
 def Factor_new(start_date,end_date,ind,period='M'):
-
-    date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date)
-    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=120), end_date, period=period)
-    stock_pool = clean_stock_list(least_live_days=1, no_ST=False, no_pause=False, no_limit_up=False,
-                                  start_date=date_list[0], end_date=period_date_list[-1]).reindex(
-        period_date_list).dropna(how='all')
+    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date, period=period)
+    date_list = get_date_range(get_pre_trade_date(start_date, offset=300), end_date)
     ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
-    code_ind = get_daily_1factor(ind, date_list=date_list).reindex(period_date_list)[stock_pool]
     ind_useful = get_useful_ind(ind, date_list)
-    # 指标
-    big_order_buy = get_moneyflow_data('BUY_VALUE_EXLARGE_ORDER',date_list=date_list)
-    big_order_sell = get_moneyflow_data('SELL_VALUE_EXLARGE_ORDER',date_list=date_list)
 
-    small_order_buy = get_moneyflow_data('BUY_VALUE_SMALL_ORDER',date_list=date_list)
-    small_order_sell = get_moneyflow_data('SELL_VALUE_SMALL_ORDER', date_list=date_list)
+    ind_close = get_daily_1factor('close',date_list=date_list,code_list=ind_name,type=ind[:-1])
+    ind_open = get_daily_1factor('open', date_list=date_list, code_list=ind_name, type=ind[:-1])
+    ind_amt = get_daily_1factor('amt', date_list=date_list, code_list=ind_name, type=ind[:-1])
+    amt_ratio = ind_amt/ ind_amt.rolling(10).mean() - 1
+    ind_pct = ind_open / ind_close.shift(1) - 1
 
+    factor = pd.DataFrame(index=period_date_list, columns=ind_pct.columns)
+    for i in range(12, len(period_date_list)):
+        date, last_date = period_date_list[i], period_date_list[i - 12]
+        for t in ind_name:
+            df_y = ind_pct.loc[last_date:date,t].dropna()
+            df_x = amt_ratio.loc[last_date:date,t].dropna()
+            all_index = (set(df_y.index)).intersection(df_x.index)
+            if len(df_x) >0:
+                wls = sm.WLS(df_y.loc[all_index],df_x.loc[all_index]).fit()
+                factor.loc[date,t] = wls.resid.sum() / df_y.std()
 
-
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
+    factor = factor[ind_useful].loc[start_date:end_date].astype(float)
 
     return factor
 
-
-start_date, end_date,ind = 20150101,20220928,'SW1'
+start_date, end_date,ind = 20150101,20210630,'SW1'
 factor = factor_test(Factor_new,start_date,end_date,ind)
 
 factor_name = 'Factor_new'
@@ -60,84 +63,14 @@ test_result, value_result, ic, rank_ic = factor_in_box(factor,factor_name, ind,f
 test_result
 value_result[[1,2,3,4,5]]
 
+
 # 检查一下所有的因子，是否具有np.inf和-np.inf
 
 
-def Factor_new1(start_date,end_date,ind,period='M'):
-    date_list = get_date_range(get_pre_trade_date(start_date, offset=1200), end_date)
-    ind_name = list(get_real_ind(ind_type=ind[:-1], level=int(ind[-1])).keys())
-    code_ind = get_daily_1factor(ind, date_list=date_list)
-    ind_useful = get_useful_ind(ind, date_list)
-    period_date_list = get_date_range(get_pre_trade_date(start_date, offset=1200), end_date, period=period)
-    # 净利润
-    stock_pool = clean_stock_list(least_live_days=1, no_ST=False, no_pause=False, no_limit_up=False,
-                                  start_date=date_list[0], end_date=period_date_list[-1]).reindex(
-        period_date_list).dropna(how='all')
+factor_name = 'Factor_residual_overnight'
+start_date, end_date,ind = 20150101,20221028,'SW1'
+factor = factor_test(Factor_residual_overnight,start_date,end_date,ind)
 
-    #net_profit = get_quarter_1factor('NET_PROFIT_EXCL_MIN_INT_INC', 'AShareIncome', report_type='408001000', date_list=date_list).dropna(
-    #    how='all', axis=1)
-    curr_asset = get_quarter_1factor('TOT_CUR_ASSETS', 'AShareBalanceSheet', report_type='408001000', date_list=date_list).dropna(how='all', axis=1)
-    inventory = get_quarter_1factor('INVENTORIES', 'AShareBalanceSheet', report_type='408001000', date_list=date_list).dropna(how='all', axis=1)
-    prepay = get_quarter_1factor('PREPAY', 'AShareBalanceSheet', report_type='408001000',
-                                  date_list=date_list).dropna(how='all', axis=1)
-
-    curr_liab = get_quarter_1factor('TOT_CUR_LIAB', 'AShareBalanceSheet', report_type='408001000',date_list=date_list).dropna(how='all', axis=1)
-    #opr_cost = get_quarter_1factor('TOT_OPER_COST', 'AShareIncome', report_type='408001000',date_list=date_list).dropna(how='all', axis=1)
-
-    report_data = (curr_asset - inventory.replace(np.nan,0) - prepay.replace(np.nan,0)).round(5) / curr_liab.replace(0,np.nan)
-
-    save_index = report_data.index
-    report_data.index = pd.Series(report_data.index).apply(lambda x: get_recent_trade_date(x))
-    report_data = report_data[stock_pool]
-    report_data.index = save_index
-    # 存在一些异常值，进行填充，但因为是最新财报，所以间隔4个财报季度填充
-    for i in [0, 1, 2, 3]:
-        report_data.iloc[i::4] = report_data.iloc[i::4].ffill(limit=2)
-
-
-    #yoy_diff = get_yoy(report_data)#.diff(1)
-    #diff_expect = yoy_diff.rolling(8).mean().astype(float).round(5)
-    #diff_std = yoy_diff.rolling(8).std().astype(float).round(5)
-
-    #new_factor = (yoy_diff - diff_expect) / diff_std
-
-    #new_factor = report_data.replace(0, np.nan).diff().round(5) / abs(report_data.replace(0, np.nan).shift(1))
-    new_factor = report_data.diff()
-    #new_factor = new_factor.T.apply(lambda x: mad(x)).T
-    #new_factor = report_data.replace(0, np.nan).diff().round(5)
-    new_factor = new_factor.T.apply(lambda x:mad(x)).T
-
-    new_factor = fill_quarter2daily_by_fixed_date(new_factor, keep='last').reindex(period_date_list).dropna(how='all')
-    new_factor = new_factor[stock_pool]
-
-    # 按行业累加起来
-    mv = np.log(get_daily_1factor('mkt_free_cap', date_list=date_list)).loc[new_factor.index]
-
-    ind_factor = pd.DataFrame(index=period_date_list, columns=ind_name)
-    for i in ind_name:
-        factor_i = (new_factor[code_ind == i] * (mv[code_ind == i]).div(mv[code_ind == i].sum(axis=1), axis=0)).sum(axis=1)
-        ind_factor[i] = factor_i
-
-    factor = ind_factor[ind_useful].loc[start_date:end_date]
-
-    factor = deal_data(factor) ** 2
-
-    return factor
-
-
-start_date, end_date,ind = 20150101,20220928,'SW1'
-factor = factor_test(Factor_new,start_date,end_date,ind)
-
-factor_name = 'Factor_new1'
-test_result, value_result, ic, rank_ic = factor_in_box(factor,factor_name, ind,fee=0.001)
-test_result
-
-
-
-start_date, end_date,ind = 20150101,20220928,'SW1'
-factor = factor_test(Factor_epredict_eps_1m,start_date,end_date,ind)
-
-factor_name = 'Factor_epredict_eps_1m'
 test_result, value_result, ic, rank_ic = factor_in_box(factor,factor_name, ind,fee=0.001)
 test_result
 value_result[[1,2,3,4,5]]
